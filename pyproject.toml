@@ -9,6 +9,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "nutrient-sdk",
     "cryptography",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]
