@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from nutrient_sdk import License
 
 from app.config import NUTRIENT_LICENSE_KEY, ALLOWED_ORIGINS
-from app.routers import health, conversion, editor, forms, signing, extraction, templates
+from app.routers import health, conversion, editor, forms, signing, extraction, templates, redaction
 
 License.register_key(NUTRIENT_LICENSE_KEY)
 
@@ -23,3 +23,4 @@ app.include_router(forms.router)
 app.include_router(signing.router)
 app.include_router(extraction.router)
 app.include_router(templates.router)
+app.include_router(redaction.router)
