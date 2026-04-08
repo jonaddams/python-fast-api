@@ -17,6 +17,10 @@ def extract_text_icr(image_bytes: bytes, original_filename: str) -> dict:
     return _extract_with_engine(image_bytes, original_filename, "ICR")
 
 
+def extract_text_vlm(image_bytes: bytes, original_filename: str) -> dict:
+    return _extract_with_engine(image_bytes, original_filename, "VLM")
+
+
 def _extract_with_engine(image_bytes: bytes, original_filename: str, engine: str) -> dict:
     with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
         inp.write(image_bytes)
@@ -25,7 +29,12 @@ def _extract_with_engine(image_bytes: bytes, original_filename: str, engine: str
     try:
         with Document.open(inp_path) as doc:
             vs = doc.get_settings().get_vision_settings()
-            vision_engine = VisionEngine.Ocr if engine == "OCR" else VisionEngine.Icr
+            engine_map = {
+                "OCR": VisionEngine.OCR,
+                "ICR": VisionEngine.ICR,
+                "VLM": VisionEngine.VLM_ENHANCED_ICR,
+            }
+            vision_engine = engine_map[engine]
             vs.set_engine(vision_engine)
 
             vision = Vision.set(doc)
