@@ -69,7 +69,7 @@ class LicenseFeatureMissing(RuntimeError):
     """Raised when the SDK rejects a call for a missing license feature."""
 
 
-def detect_fields(pdf_bytes: bytes) -> dict:
+def detect_fields(pdf_bytes: bytes, confidence_threshold: float | None = None) -> dict:
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as inp, \
          tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as out:
         inp.write(pdf_bytes)
@@ -78,6 +78,10 @@ def detect_fields(pdf_bytes: bytes) -> dict:
     try:
         try:
             with Document.open(inp_path) as doc:
+                if confidence_threshold is not None:
+                    doc.get_settings().get_form_recognition_settings().set_confidence_threshold(
+                        confidence_threshold
+                    )
                 editor = PdfEditor.edit(doc)
                 try:
                     input_count = editor.get_form_field_collection().get_count()

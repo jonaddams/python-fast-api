@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import Response
 
 from app.services.forms import (
@@ -38,10 +38,18 @@ async def fill_fields(
 
 
 @router.post("/detect")
-async def detect(file: UploadFile = File(...)):
+async def detect(
+    file: UploadFile = File(...),
+    confidence: float | None = Query(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Detection confidence threshold (0.0-1.0). SDK default is 0.35.",
+    ),
+):
     try:
         data = await file.read()
-        return detect_fields(data)
+        return detect_fields(data, confidence_threshold=confidence)
     except LicenseFeatureMissing as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
