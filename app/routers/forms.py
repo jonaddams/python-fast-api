@@ -1,7 +1,12 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import Response
 
-from app.services.forms import list_form_fields, fill_form_fields
+from app.services.forms import (
+    list_form_fields,
+    fill_form_fields,
+    detect_fields,
+    LicenseFeatureMissing,
+)
 
 router = APIRouter(prefix="/api/forms")
 
@@ -28,5 +33,16 @@ async def fill_fields(
             media_type="application/pdf",
             headers={"Content-Disposition": "attachment; filename=filled.pdf"},
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/detect")
+async def detect(file: UploadFile = File(...)):
+    try:
+        data = await file.read()
+        return detect_fields(data)
+    except LicenseFeatureMissing as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
