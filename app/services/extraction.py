@@ -2,11 +2,15 @@ import json
 import tempfile
 import os
 
-from nutrient_sdk import Document, Vision, VisionEngine
+from nutrient_sdk import Document, Vision, VisionEngine, VisionFeatures
 
 # SDK bug: native Close() on Vision objects SIGSEGV's on GC.
 # Retain references to prevent cleanup.
 _vision_keep_alive: list[Vision] = []
+
+# The demo license does not include the `vision_form` entitlement.
+# `VisionFeatures.ALL` includes FORM by default, so we explicitly opt out.
+_LICENSED_VISION_FEATURES = VisionFeatures.ALL.value - VisionFeatures.FORM.value
 
 
 def extract_text_ocr(image_bytes: bytes, original_filename: str) -> dict:
@@ -30,12 +34,13 @@ def _extract_with_engine(image_bytes: bytes, original_filename: str, engine: str
         with Document.open(inp_path) as doc:
             vs = doc.get_settings().get_vision_settings()
             engine_map = {
-                "OCR": VisionEngine.OCR,
+                "OCR": VisionEngine.ADAPTIVE_OCR,
                 "ICR": VisionEngine.ICR,
                 "VLM": VisionEngine.VLM_ENHANCED_ICR,
             }
             vision_engine = engine_map[engine]
             vs.set_engine(vision_engine)
+            vs.set_features(_LICENSED_VISION_FEATURES)
 
             vision = Vision.set(doc)
             _vision_keep_alive.append(vision)
