@@ -98,7 +98,7 @@ def detect_fields(pdf_bytes: bytes) -> dict:
                     editor.close()
         except Exception as ex:
             msg = str(ex)
-            if "vision_form" in msg or "Error Code: 3017" in msg:
+            if "vision_form" in msg and "Error Code: 3017" in msg:
                 raise LicenseFeatureMissing(
                     "Form field detection requires the 'vision_form' license "
                     "entitlement. Your license does not include it."
