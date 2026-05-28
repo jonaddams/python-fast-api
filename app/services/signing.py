@@ -2,7 +2,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from nutrient_sdk import PdfSigner, DigitalSignatureOptions
+from nutrient_sdk import Document, Signature, DigitalSignatureOptions
 
 DEMO_CERT_PATH = Path(__file__).resolve().parent.parent / "certs" / "demo-certificate.p12"
 DEMO_CERT_PASSWORD = "nutrient-demo"
@@ -31,8 +31,8 @@ def sign_document(pdf_bytes: bytes, cert_bytes: bytes, password: str) -> bytes:
         options.set_reason("Document signing demo")
         options.set_location("Nutrient Python SDK")
 
-        with PdfSigner() as signer:
-            signer.sign(inp_path, out_path, options)
+        with Document.open(inp_path) as doc, Signature() as signer:
+            signer.sign(doc, out_path, options)
 
         with open(out_path, "rb") as f:
             return f.read()
