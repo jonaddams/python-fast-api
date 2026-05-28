@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-SAMPLE_IMAGE = Path(__file__).resolve().parent.parent / "extract-data-from-image-ocr" / "input_ocr_multiple_languages.png"
+SAMPLE_IMAGE = Path(__file__).resolve().parent / "fixtures" / "input_ocr_multiple_languages.png"
 
 
 @pytest.fixture(scope="session")
