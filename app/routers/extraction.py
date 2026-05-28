@@ -1,6 +1,11 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
-from app.services.extraction import extract_text_ocr, extract_text_icr, extract_text_vlm
+from app.services.extraction import (
+    extract_text_ocr,
+    extract_text_icr,
+    extract_text_vlm,
+    LocalVlmUnavailable,
+)
 
 router = APIRouter(prefix="/api/extraction")
 
@@ -28,5 +33,7 @@ async def vlm(file: UploadFile = File(...)):
     try:
         data = await file.read()
         return extract_text_vlm(data, file.filename or "input")
+    except LocalVlmUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -4,6 +4,11 @@ import os
 
 from nutrient_sdk import Document, Vision, VisionEngine, VisionFeatures
 
+
+class LocalVlmUnavailable(RuntimeError):
+    """Raised when VLM_ENHANCED_ICR cannot reach its local model server."""
+
+
 # SDK bug: native Close() on Vision objects SIGSEGV's on GC.
 # Retain references to prevent cleanup.
 _vision_keep_alive: list[Vision] = []
@@ -44,7 +49,15 @@ def _extract_with_engine(image_bytes: bytes, original_filename: str, engine: str
 
             vision = Vision.set(doc)
             _vision_keep_alive.append(vision)
-            raw_json = vision.extract_content()
+            try:
+                raw_json = vision.extract_content()
+            except Exception as ex:
+                if "localhost:1234" in str(ex) or "Connection refused" in str(ex):
+                    raise LocalVlmUnavailable(
+                        "VLM_ENHANCED_ICR requires a local VLM server at localhost:1234 "
+                        "(LM Studio / Ollama). Start it and retry."
+                    ) from ex
+                raise
             return _format_extraction_result(raw_json, original_filename, engine)
     finally:
         os.unlink(inp_path)
