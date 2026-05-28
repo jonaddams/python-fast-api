@@ -1,22 +1,33 @@
-from pathlib import Path
-
 from fastapi.testclient import TestClient
+import pytest
+
+from app.services.signing import DEMO_CERT_PATH
+
+pytestmark = pytest.mark.skipif(
+    not DEMO_CERT_PATH.exists(),
+    reason=f"Demo certificate not found: {DEMO_CERT_PATH}",
+)
 
 
 def _make_minimal_pdf() -> bytes:
-    # Minimal valid PDF (1 page, no content) so we don't depend on a sample PDF in repo.
-    return (
-        b"%PDF-1.4\n"
-        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-        b"2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n"
-        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\n"
-        b"xref\n0 4\n"
-        b"0000000000 65535 f \n"
-        b"0000000009 00000 n \n"
-        b"0000000052 00000 n \n"
-        b"0000000099 00000 n \n"
-        b"trailer<</Size 4/Root 1 0 R>>\nstartxref\n149\n%%EOF\n"
-    )
+    objs = [
+        b"<</Type/Catalog/Pages 2 0 R>>",
+        b"<</Type/Pages/Count 1/Kids[3 0 R]>>",
+        b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>",
+    ]
+    body = b"%PDF-1.4\n"
+    offsets = []
+    for i, obj in enumerate(objs, start=1):
+        offsets.append(len(body))
+        body += f"{i} 0 obj".encode() + obj + b"\nendobj\n"
+
+    xref_offset = len(body)
+    xref = b"xref\n0 4\n0000000000 65535 f \n"
+    for off in offsets:
+        xref += f"{off:010d} 00000 n \n".encode()
+    xref += b"trailer<</Size 4/Root 1 0 R>>\n"
+    xref += f"startxref\n{xref_offset}\n%%EOF\n".encode()
+    return body + xref
 
 
 def test_sign_demo_endpoint_returns_signed_pdf(client: TestClient):
