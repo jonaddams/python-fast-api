@@ -21,3 +21,6 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# nutrient-sdk-native uses SIGSEGV internally during ML inference and form
+# operations. pytest's faulthandler plugin intercepts it as a crash. Disable.
+addopts = "-p no:faulthandler"

@@ -20,7 +20,7 @@ def list_form_fields(pdf_bytes: bytes) -> list[dict[str, str]]:
                 4: "radio", 5: "combobox", 6: "listbox", 7: "signature",
             }
             for i in range(fields.get_count()):
-                field = fields.get_item(i)
+                field = fields[i]
                 ft = field.get_field_type()
                 result.append({
                     "name": field.get_full_name(),
@@ -47,7 +47,7 @@ def fill_form_fields(pdf_bytes: bytes, values_json: str) -> bytes:
             editor = PdfEditor.edit(doc)
             fields = editor.get_form_field_collection()
             for i in range(fields.get_count()):
-                field = fields.get_item(i)
+                field = fields[i]
                 name = field.get_full_name()
                 if name in values:
                     field.set_value(values[name])
