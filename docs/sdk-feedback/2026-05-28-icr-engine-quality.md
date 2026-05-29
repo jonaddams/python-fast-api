@@ -271,6 +271,24 @@ A follow-up test disabling all five flags simultaneously produced the same resul
 
 **Notes:** None of the five `AiAugmenter` toggles has any observable effect on ICR output — not on the key schema, not on field values (beyond non-deterministic element UUIDs). The setters are wired correctly (verified: `get_enable_reading_order()` returns `False` after `set_enable_reading_order(False)`), so the settings object accepts the changes, but the ICR engine ignores them at inference time. This is consistent with the finding in Task 4 (multi-language config no-op) and Task 1 (confidence thresholds no-op): the ICR pipeline appears to run a fixed computation regardless of most `DocumentSettings` knobs. Fields that appear correlated with augmenters (`readingOrder`, `classification`, `pairs`, `altDescription`) are emitted by the ICR model unconditionally — the toggle flags do not gate them. This may be by design (augmenters may only be respected by the OCR/VLM path), or may be a bug in the ICR settings dispatch layer. Worth raising with the SDK team.
 
+### Form detection on an already-fielded PDF
+
+Ran `PdfEditor.detect_and_add_form_fields()` against `tests/fixtures/account-registration-form.pdf`, which already has 15 pre-existing form fields (used by the form-fill demo page):
+
+```
+BEFORE: 15 fields
+BEFORE names: ['account_type', 'company_name', 'confirm_password', 'country', 'date_of_birth', 'email', 'full_name', 'interests', 'newsletter', 'password', 'phone', 'signature', 'submit', 'terms_agree', 'username']
+
+AFTER: 15 fields
+New names added: []
+Names removed: []
+Names duplicated (appear 2+ times): []
+```
+
+**Verdict:** **Idempotent / safe.** Detection on a fielded PDF does not add fields. The model correctly detected the existing fields and made no changes.
+
+**Customer impact:** Low. Applications that call `detect_and_add_form_fields()` on PDFs that already have fields will not corrupt the field set. Re-detection is safe.
+
 ## Demo decision
 
 The companion `nutrient-sdk-samples` demo page for ICR (`/python-sdk/icr-extraction`) ships with the `handwritten-employment-application.jpg` sample as the default — the case where ICR demonstrably works. A short copy paragraph at the top sets expectations about the engine's narrow strength rather than promising general handwriting recognition.
