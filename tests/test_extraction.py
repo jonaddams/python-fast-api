@@ -39,6 +39,20 @@ def test_vlm_endpoint_returns_503_when_local_vlm_unavailable(
     assert "localhost:1234" in body["detail"] or "VLM" in body["detail"]
 
 
+def test_vlm_endpoint_with_claude_provider_returns_extraction(
+    client: TestClient, sample_image_bytes: bytes, sample_image_name: str
+):
+    response = client.post(
+        "/api/extraction/vlm?provider=claude",
+        files={"file": (sample_image_name, sample_image_bytes, "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["engine"] == "VLM"
+    assert body["statistics"]["totalElements"] > 0
+    assert len(body["fullText"]) > 0
+
+
 def test_describe_endpoint_returns_text(client: TestClient, sample_image_bytes: bytes, sample_image_name: str):
     response = client.post(
         "/api/extraction/describe",

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
 
 from app.services.extraction import (
     extract_text_ocr,
@@ -30,10 +30,16 @@ async def icr(file: UploadFile = File(...)):
 
 
 @router.post("/vlm")
-async def vlm(file: UploadFile = File(...)):
+async def vlm(
+    file: UploadFile = File(...),
+    provider: str | None = Query(
+        default=None,
+        description="VLM provider override: 'claude' or 'openai'. If unset, uses the SDK's default (localhost:1234).",
+    ),
+):
     try:
         data = await file.read()
-        return extract_text_vlm(data, file.filename or "input")
+        return extract_text_vlm(data, file.filename or "input", provider=provider)
     except LocalVlmUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
