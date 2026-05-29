@@ -301,6 +301,40 @@
     }
     .implications strong { color: var(--ink); }
 
+    .eng-feedback {
+      list-style: none;
+      padding-left: 0;
+      margin-top: 8px;
+    }
+    .eng-feedback li {
+      position: relative;
+      padding: 18px 22px 18px 22px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: var(--radius);
+      margin-bottom: 14px;
+    }
+    .eng-feedback li .label {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+    .eng-feedback li h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      color: var(--ink);
+    }
+    .eng-feedback li p {
+      margin: 0;
+      color: var(--ink-2);
+    }
+    .eng-feedback strong { color: var(--ink); }
+
     .footer-meta {
       margin-top: 64px;
       padding-top: 32px;
@@ -565,6 +599,37 @@
       <li><strong>The gap is not closeable with prompt engineering or post-processing on the ICR side.</strong> The output is not a noisy version of the truth that could be cleaned up — it is largely invented content. Any "fix" would need to happen at the model layer (retraining, swapping the backend, or routing inputs through a VLM).</li>
       <li><strong>ICR's clean-success window is narrower than the API name suggests.</strong> The companion engine-quality doc shows ICR working well on a clean print employment-application form. The "Heavenly Hamburgers" card is also print handwriting on a structured layout — yet ICR fails on it because the card has decorative graphics, lined rules, and free-form positioning. The boundary between "ICR works" and "ICR doesn't" is not "print vs. cursive" but something closer to <em>rigid form field vs. anything else</em>.</li>
       <li><strong>The SDK could close this gap by adding a <code>Vision.transcribe()</code>-style call that uses a configured VLM provider.</strong> The Anthropic / OpenAI / Gemini APIs are already exposed by the SDK for <code>describe()</code>; reusing that plumbing with a transcription prompt would give customers a high-quality path through the SDK rather than around it.</li>
+    </ol>
+
+    <!-- ============== ENGINEERING FEEDBACK ============== -->
+    <h2>Specific feedback for the engineering team</h2>
+    <p>Distinct from the customer-facing implications above, these are SDK-level changes that would help. Each is independent and could be picked up on its own.</p>
+    <ol class="eng-feedback">
+      <li>
+        <span class="label">High-leverage feature</span>
+        <h3>Add a <code>prompt</code> parameter to <code>Vision.describe()</code> (or a new <code>Vision.transcribe()</code>)</h3>
+        <p>Customers who want VLM-quality output today have to bypass the SDK entirely and call the provider directly. That's lost retention. The SDK already has API-key plumbing for Claude / OpenAI; exposing the prompt is a small change with a large impact. A transcription-specific call would close the cursive-handwriting gap immediately without retraining the native ICR model.</p>
+      </li>
+      <li>
+        <span class="label">SDK bug · separate from model quality</span>
+        <h3>Wire up — or stop documenting — <code>SegmenterSettings.confidence_threshold</code> and <code>WordsDetectionSettings.confidence_threshold</code> for ICR</h3>
+        <p>Both are documented as configurable and accept values 0–1, but sweeping them through 0.5 / 0.7 / 0.85 on a real sample produced byte-identical output. Either fix the wiring or remove them from the API surface. A customer who reads the settings docs and tunes these will reasonably expect a behavioral change.</p>
+      </li>
+      <li>
+        <span class="label">Discoverability</span>
+        <h3>Document which settings affect which engine</h3>
+        <p><code>DocumentSettings</code> exposes around 35 <code>get_*_settings()</code> accessors. There's no clear map of "these settings affect OCR, these affect ICR, these affect form detection." A customer tuning <code>SegmenterSettings</code> reasonably expects it to affect every Vision call — it doesn't. A simple matrix in the docs would prevent a lot of wasted time.</p>
+      </li>
+      <li>
+        <span class="label">Error UX</span>
+        <h3>Add a remediation hint to license-feature errors</h3>
+        <p>The current message — <em>"InvalidLicenseException: The registered license does not support the feature 'vision_form' (Error Code: 3017)"</em> — is correct but unhelpful. Adding "Contact sales for a license with this feature enabled, or pass <code>VisionFeatures.ALL.value - VisionFeatures.FORM.value</code> via <code>set_features()</code> to skip it" turns a dead end into a path. Two customer demos hit this wall in one day; the fix is a single string.</p>
+      </li>
+      <li>
+        <span class="label">Competitive context</span>
+        <h3>Benchmark ICR against Google Document AI, AWS Textract, Azure Document Intelligence</h3>
+        <p>The Claude comparison establishes that ICR loses to a general-purpose VLM on cursive. The real competitive context, though, is industry document-understanding APIs — those are what customers compare us to. If those incumbents also beat Nutrient ICR, that's the story we should tell internally. If they don't, ICR has a defensible niche we should articulate (probably "private, no per-token cost, runs offline"). Either way, the comparison should be in our internal toolkit, not just the VLM one.</p>
+      </li>
     </ol>
 
     <h2>Caveats</h2>
