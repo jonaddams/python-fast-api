@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude vs. Nutrient ICR — Handwriting Transcription Comparison</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --surface: #f7f7f8;
+      --ink: #111418;
+      --ink-2: #2b3138;
+      --ink-3: #5b6470;
+      --ink-4: #8a939e;
+      --line: #e4e6ea;
+      --line-strong: #c9cdd3;
+      --accent: #1f6feb;
+      --accent-soft: #eaf2ff;
+      --good: #1f7a4a;
+      --good-soft: #e6f4ec;
+      --bad: #b42318;
+      --bad-soft: #fdecea;
+      --mid: #8a6500;
+      --mid-soft: #fbf4dc;
+      --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
+      --radius: 10px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1115;
+        --surface: #171a20;
+        --ink: #e6e9ee;
+        --ink-2: #c8cdd5;
+        --ink-3: #93a0ae;
+        --ink-4: #6a7585;
+        --line: #2a2f37;
+        --line-strong: #3a414b;
+        --accent: #6aa3ff;
+        --accent-soft: #14233d;
+        --good: #79c79b;
+        --good-soft: #133225;
+        --bad: #ec8579;
+        --bad-soft: #3a1816;
+        --mid: #d8b863;
+        --mid-soft: #2e2510;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 56px 32px 96px;
+    }
+    header.doc-header {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 32px;
+      margin-bottom: 40px;
+    }
+    .eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin: 0 0 12px;
+    }
+    h1 {
+      font-size: 36px;
+      line-height: 1.2;
+      letter-spacing: -0.01em;
+      margin: 0 0 16px;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px 32px;
+      font-size: 14px;
+      color: var(--ink-3);
+      margin-top: 16px;
+    }
+    .meta strong { color: var(--ink-2); font-weight: 600; }
+    .summary {
+      background: var(--accent-soft);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin: 32px 0;
+      color: var(--ink-2);
+    }
+    .summary strong { color: var(--ink); }
+    h2 {
+      font-size: 24px;
+      line-height: 1.3;
+      letter-spacing: -0.005em;
+      margin: 56px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    h2 .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      background: var(--surface);
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      padding: 3px 10px;
+      vertical-align: middle;
+      margin-left: 10px;
+    }
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 24px 0 10px;
+      color: var(--ink-2);
+    }
+    p, li { color: var(--ink-2); }
+    ol, ul { padding-left: 24px; }
+    li { margin-bottom: 8px; }
+
+    .sample {
+      margin-bottom: 56px;
+    }
+    .sample-intro {
+      margin-bottom: 24px;
+      color: var(--ink-2);
+    }
+    .figure {
+      margin: 0 0 24px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      text-align: center;
+    }
+    .figure a {
+      display: inline-block;
+      max-width: 100%;
+    }
+    .figure img {
+      max-width: 100%;
+      max-height: 560px;
+      height: auto;
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+    }
+    .figure figcaption {
+      font-size: 13px;
+      color: var(--ink-3);
+      margin-top: 12px;
+    }
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin: 16px 0 20px;
+    }
+    @media (max-width: 800px) {
+      .compare { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg);
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .verdict {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 999px;
+    }
+    .verdict.good { color: var(--good); background: var(--good-soft); }
+    .verdict.bad  { color: var(--bad);  background: var(--bad-soft); }
+    .verdict.mid  { color: var(--mid);  background: var(--mid-soft); }
+
+    .card-body {
+      padding: 16px 18px;
+      font-size: 14.5px;
+      color: var(--ink-2);
+      flex: 1;
+    }
+    .card-body.transcript p { margin: 0 0 12px; }
+    .card-body.transcript p:last-child { margin-bottom: 0; }
+    .card-body.transcript ul { margin: 0 0 12px; }
+    .card-body.icr-output {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13.5px;
+      line-height: 1.65;
+      color: var(--ink-3);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .observations {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px 20px 16px 24px;
+    }
+    .observations h3 {
+      margin-top: 0;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .observations ul { margin: 0; }
+    .observations li { color: var(--ink-2); }
+
+    table.findings {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px;
+      font-size: 14px;
+    }
+    table.findings th,
+    table.findings td {
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+    table.findings th {
+      font-weight: 600;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: var(--surface);
+    }
+    table.findings tr:last-child td { border-bottom: none; }
+    table.findings td:first-child {
+      font-weight: 600;
+      color: var(--ink);
+      width: 32%;
+    }
+    table.findings .good { color: var(--good); }
+    table.findings .bad  { color: var(--bad); }
+
+    .implications {
+      counter-reset: imp;
+      list-style: none;
+      padding-left: 0;
+    }
+    .implications li {
+      counter-increment: imp;
+      position: relative;
+      padding: 16px 20px 16px 56px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+    }
+    .implications li::before {
+      content: counter(imp);
+      position: absolute;
+      left: 16px;
+      top: 14px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .implications strong { color: var(--ink); }
+
+    .footer-meta {
+      margin-top: 64px;
+      padding-top: 32px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--ink-3);
+    }
+    .footer-meta a { color: var(--accent); text-decoration: none; }
+    .footer-meta a:hover { text-decoration: underline; }
+
+    @media print {
+      body { font-size: 12px; }
+      .container { padding: 24px; max-width: none; }
+      .figure img { max-height: 360px; }
+      .summary, .observations, .implications li, .card { box-shadow: none; }
+      h2 { page-break-after: avoid; }
+      .sample { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="doc-header">
+      <p class="eyebrow">SDK Feedback · Internal</p>
+      <h1>Claude vs. Nutrient ICR<br>Handwriting Transcription Comparison</h1>
+      <p style="font-size:17px; color:var(--ink-2); max-width:760px; margin-top:8px;">
+        A head-to-head comparison of the Nutrient SDK's <code>ICR</code> engine against a
+        general-purpose VLM (Anthropic Claude) on three representative handwriting samples:
+        a structured print recipe card, a cursive recipe on aged paper, and a modern cursive letter.
+      </p>
+      <div class="meta">
+        <span><strong>Date:</strong> 2026-05-28</span>
+        <span><strong>SDK:</strong> nutrient-sdk 1.0.6 · nutrient-sdk-native 1.0.6</span>
+        <span><strong>VLM:</strong> Claude Opus 4.7 (native vision)</span>
+      </div>
+    </header>
+
+    <div class="summary">
+      <strong>Headline.</strong> On all three samples — including the print-handwriting recipe card that should have been ICR's strongest case — Claude produced complete, downstream-usable transcriptions, while ICR produced fragmentary or unrecoverable text. ICR's reported confidence (0.59 – 0.71) did not correlate with output quality. The boundary between "ICR works" and "ICR doesn't" appears closer to <em>rigid form-field layout vs. anything else</em> than <em>print vs. cursive</em>.
+    </div>
+
+    <h2>Methodology</h2>
+    <ul>
+      <li>Three images chosen to span the handwriting difficulty range: clean print on a structured recipe card; aged cursive recipe; modern cursive letter.</li>
+      <li>ICR invoked through this project's <code>/api/extraction/icr</code> endpoint — <code>Vision.extract_content()</code> with <code>VisionEngine.ICR</code>, <code>VisionFeatures.ALL</code> minus the <code>FORM</code> bit. The <code>fullText</code> field of the response is reproduced verbatim below.</li>
+      <li>Claude received the raw image with the implicit instruction "transcribe this handwriting." Output is reproduced verbatim. Reading notes accompany each transcription.</li>
+      <li>No post-processing applied to either output. Neither engine was given any prior context about the document.</li>
+    </ul>
+
+    <!-- ============== SAMPLE 1 ============== -->
+    <section class="sample">
+      <h2>Sample 1 — Heavenly Hamburgers <span class="badge">Print · Structured Card</span></h2>
+      <p class="sample-intro">
+        This is the case ICR is supposed to be good at: clean, block-style print handwriting on a well-structured recipe card with clear field boundaries.
+      </p>
+
+      <figure class="figure">
+        <a href="heavenly-hamburgers-recipe.jpeg" target="_blank" rel="noopener">
+          <img src="heavenly-hamburgers-recipe.jpeg" alt="Heavenly Hamburgers recipe card, print handwriting on a decorative pre-printed card">
+        </a>
+        <figcaption>Click image to view full size · source: <code>heavenly-hamburgers-recipe.jpeg</code></figcaption>
+      </figure>
+
+      <div class="compare">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Claude — transcription</span>
+            <span class="verdict good">Complete</span>
+          </div>
+          <div class="card-body transcript">
+            <p><strong>Heavenly Hamburgers</strong></p>
+            <p><em>Recipe from the kitchen of:</em> Originally from Aunt Lola</p>
+            <ul>
+              <li>2 lbs. ground beef</li>
+              <li>3/4 C. oatmeal</li>
+              <li>3/4 C. canned (evaporated) milk</li>
+              <li>Salt, pepper, onion salt (or dried chopped onions)</li>
+            </ul>
+            <p>Make into thick patties (10 to 12) and brown. Put in baking dish. Cover with sauce. Bake 1 hr. at 350° F</p>
+            <p><strong>Sauce:</strong> 1 C. Catsup · 2 Tbsp. Worchestershire sauce · 2 Tbsp. Vinegar · 2 Tbsp. Sugar · 1 ½ C. water</p>
+            <p><em>from Lola to Grandmommy to Mom to Ruth</em></p>
+            <p>Bake at 350° F for 1 hour</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Nutrient ICR — <code>fullText</code> verbatim</span>
+            <span class="verdict bad">Fragmentary · 0.59 conf</span>
+          </div>
+          <div class="card-body icr-output">x  1  ~  2 lbs a  Or - nally  orat milk  Salt, pepper, Onion satt er dried chonged onions )  Make ints thick pathes Putin ba KingA ish "Sauce. Bake Abr. at 350 F  2 Sauce  | A C.  a Ths v  wd Th $ neg ar. Sugar  from lela to  _te  Bake for  -  -  Sauce:  _____  ow wren - > ven wns Whal'' Ton Cao what  ¥ 2 Fm F  Reeipe from the kituhgn of:  oe  A</div>
+        </div>
+      </div>
+
+      <div class="observations">
+        <h3>Observations</h3>
+        <ul>
+          <li>Even on what should be ICR's strongest case — clear print handwriting in structured fields — Claude transcribes the recipe end-to-end while ICR returns fragmentary, mostly unusable text. A cook cannot make these hamburgers from the ICR output.</li>
+          <li>ICR did catch some structural anchors: "Salt, pepper, Onion satt (salt) er dried chonged (chopped) onions", "Make ints (into) thick pathes (patties)", "Bake Abr. (1hr.) at 350 F", "Sauce:", "from lela to", "Bake for", "Recipe from the kituhgn (kitchen) of:". The skeleton is recognizable.</li>
+          <li>But the structured fields ICR is supposed to handle — quantities, units, ingredient names — are mangled or absent. The ingredient list is not extractable. The sauce sub-recipe is not extractable. Only the section labels survive.</li>
+          <li>ICR appears to have been confused by decorative pre-printed elements (the cheese illustration, the "Here's what's cookin':" red text, the lined rules). Phantom "x  1  ~" at the top and a misread "Reeipe from the kituhgn of:" at the end likely come from the decorative graphics rather than the handwriting itself.</li>
+          <li>Conclusion: in a controlled form context with hand-printed values in pre-defined boxes, ICR works (per the employment-application case in the companion engine-quality doc); on a less structured but still print and well-organized recipe card, it produces output unfit for downstream use.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============== SAMPLE 2 ============== -->
+    <section class="sample">
+      <h2>Sample 2 — Apricot Cake recipe <span class="badge">Cursive · Aged paper</span></h2>
+
+      <figure class="figure">
+        <a href="apricot-cake-recipe.jpg" target="_blank" rel="noopener">
+          <img src="apricot-cake-recipe.jpg" alt="Apricot Cake recipe written in cursive on aged lined paper">
+        </a>
+        <figcaption>Click image to view full size · source: <code>apricot-cake-recipe.jpg</code></figcaption>
+      </figure>
+
+      <div class="compare">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Claude — transcription</span>
+            <span class="verdict good">Complete</span>
+          </div>
+          <div class="card-body transcript">
+            <p><strong>Apricot Cake.</strong></p>
+            <p><strong>Ing:</strong> 6 ozs. of dried apricots. ½ lb. of flour (S.R. or plain with ½ teaspoonful of baking powder). ½ teaspoonful carbonate of soda. Rind &amp; juice of one orange. 6 ozs. sugar. 5 ozs. margarine. 2 eggs.</p>
+            <p><strong>Method.</strong> Wash apricots &amp; dry in a cloth. Cut into very small pieces. Mix marg. &amp; sugar to a cream adding eggs. Mix all dry ingredients together including apricots &amp; fold into the egg mixture. A little milk can be added if required. Mix mixture well before turning it into prepared tin. Put into moderate oven &amp; cook 1½ hrs.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Nutrient ICR — <code>fullText</code> verbatim</span>
+            <span class="verdict bad">Unrecoverable · 0.64 conf</span>
+          </div>
+          <div class="card-body icr-output">Coke &amp; shied aprios) lain Ib with N € flous a 1,h à easposen (S.R 3 vab no powela laagpoon . canten ale 1 horela ind juica od 3 orange ) gan 3 anganing egas wash apricdi 9 alry a alon aus into veig smal pices Mix mangi A Lugan to 8 Cream mold a egas 2 - ald dhry inged - Yorghhe in a ad ng darie Ar a Pold into ha 299 alur te milh Can Se aadoled Ronached mix Ins xtuke we'e vejote lurning A wro prepared kin Put into hodenalis aven acor a - hrs.</div>
+        </div>
+      </div>
+
+      <div class="observations">
+        <h3>Observations</h3>
+        <ul>
+          <li>Claude produced a usable, kitchen-ready transcription: every ingredient with quantity and unit, every method step, fractional measurements preserved.</li>
+          <li>ICR's output is not a degraded version of the correct text — it is structurally different content. Most "words" are invented. The fragments that do match the original ("Cream", "egas" → eggs, "milh" → milk, "prepared kin" → prepared tin, "hrs") are scattered among gibberish and provide no reliable anchor for post-processing.</li>
+          <li>ICR's reported confidence on this sample was <strong>0.64</strong> — moderate, not low. The score does not flag the output as unreliable.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============== SAMPLE 3 ============== -->
+    <section class="sample">
+      <h2>Sample 3 — "Dear Magnus" thank-you note <span class="badge">Cursive · Modern letter</span></h2>
+
+      <figure class="figure">
+        <a href="dear-magnus-thank-you-note.jpg" target="_blank" rel="noopener">
+          <img src="dear-magnus-thank-you-note.jpg" alt="Cursive thank-you letter to Magnus on a NOTES card">
+        </a>
+        <figcaption>Click image to view full size · source: <code>dear-magnus-thank-you-note.jpg</code></figcaption>
+      </figure>
+
+      <div class="compare">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Claude — transcription</span>
+            <span class="verdict good">Complete</span>
+          </div>
+          <div class="card-body transcript">
+            <p><strong>NOTES</strong></p>
+            <p><strong>Dear Magnus,</strong></p>
+            <p>The International Business Law Team at Tilburg University wishes to express our gratitude for your recent guest lectures on Web 3.0 and the Metaverse. Your insights were not only theoretically enriching but also immensely practical, offering our students a crucial perspective on these technologies.</p>
+            <p>Your ability to blend theoretical knowledge with Real-World experience made the concepts accessible to our students. Your passion for the subject matter was evident throughout, igniting enthusiasm and curiosity among our audience. We deeply appreciate your dedication of time, expertise and invaluable contribution to the IBL-program. Your presence has enriched our academic community!</p>
+            <p>Kind Regards, Erik, Tronel &amp; Sanita</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Nutrient ICR — <code>fullText</code> verbatim</span>
+            <span class="verdict mid">Anchors only · 0.71 conf</span>
+          </div>
+          <div class="card-body icr-output">NOTES Dear Magnus, The Business lean ot University Usishes G express OUR Gratitude fer OUR Recent or guest CURL lectures (Web 3.0 adhd the Melaverse. OUURL Were Insights nob theoretic Only but oso immensely Offers RUA cal perspective on th, €echno les. practical, Youre &amp;" blend ability theoretical Rrowledge Real- Udoeld experience made the concepts accessible Gur tO Stuclents. YOUR Passion foe the. Subject mates Was evident throughout . fe) enthousiasm and a Que Qudience We deeply appreci ded cakinn of lime , and inv on contri lbudtor. enRiched OW to the BL- program. Youk presence hos x + Kind Regards, Erik Tronel &amp; Sanita x</div>
+        </div>
+      </div>
+
+      <div class="observations">
+        <h3>Observations</h3>
+        <ul>
+          <li>Claude transcribed the letter end-to-end at near-publication accuracy: institution name ("Tilburg University"), program name ("IBL-program"), all three signatories preserved.</li>
+          <li>ICR caught the salutation, "NOTES" header, signature line, and a scattering of common words ("blend", "theoretical", "knowledge", "Real-", "experience", "made the concepts accessible", "Kind Regards") but the body is otherwise unreadable. The institution name was missed entirely; the program identifier degraded to "BL- program."</li>
+          <li>ICR's reported confidence on this sample was <strong>0.71</strong> — higher than the recipe, despite the body of the output being unusable for any downstream task.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============== AGGREGATE ============== -->
+    <h2>Aggregate findings</h2>
+    <table class="findings">
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th>Claude</th>
+          <th>Nutrient ICR</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Print recipe (Heavenly Hamburgers) recoverability</td>
+          <td class="good">Reader can cook from the transcript</td>
+          <td class="bad">Section labels survive; ingredients, quantities, sauce list unrecoverable</td>
+        </tr>
+        <tr>
+          <td>Cursive recipe (apricot) recoverability</td>
+          <td class="good">Reader can bake from the transcript</td>
+          <td class="bad">Recipe cannot be reconstructed</td>
+        </tr>
+        <tr>
+          <td>Cursive letter (Dear Magnus) recoverability</td>
+          <td class="good">Letter can be quoted or summarized</td>
+          <td class="bad">Salutation and signature recoverable; body is noise</td>
+        </tr>
+        <tr>
+          <td>Proper nouns</td>
+          <td class="good">"Tilburg University", "IBL-program", "Aunt Lola", "Worchestershire" preserved</td>
+          <td class="bad">Mostly missed; "lela" for Lola, "Worchestershire" mangled</td>
+        </tr>
+        <tr>
+          <td>Numeric quantities and units</td>
+          <td class="good">"2 lbs.", "3/4 C.", "1 hr.", "350° F", "½ lb.", "1½ hrs" preserved</td>
+          <td class="bad">Mangled or absent across all three samples</td>
+        </tr>
+        <tr>
+          <td>Decorative card elements</td>
+          <td class="good">Recognized as decoration; ignored</td>
+          <td class="bad">Confused for text; produces phantom output ("x 1 ~", "Reeipe from the kituhgn of:")</td>
+        </tr>
+        <tr>
+          <td>Reported confidence vs. truth</td>
+          <td>n/a (no confidence score)</td>
+          <td class="bad">0.59 / 0.64 / 0.71 — uncorrelated with actual quality</td>
+        </tr>
+        <tr>
+          <td>Latency (single image, local hardware)</td>
+          <td>n/a (in-model)</td>
+          <td>7.4s / 5.5s / 1.4s for ICR</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ============== IMPLICATIONS ============== -->
+    <h2>Practical implications</h2>
+    <ol class="implications">
+      <li><strong>For real-world handwriting transcription today — print <em>or</em> cursive — a general-purpose VLM dominates Nutrient ICR.</strong> Customers with this workload should not be steered to ICR. The print-handwriting case was expected to be ICR's strength; the structured recipe card shows that "expected strength" still produces output that's not extractable for downstream use.</li>
+      <li><strong>ICR's reported confidence does not signal output quality.</strong> Confidence ranged from 0.59 to 0.71 across the three samples, with no correlation to whether the output was usable. Building downstream logic that thresholds on ICR confidence (e.g., "auto-accept if conf > 0.7") will silently approve unusable content.</li>
+      <li><strong>The gap is not closeable with prompt engineering or post-processing on the ICR side.</strong> The output is not a noisy version of the truth that could be cleaned up — it is largely invented content. Any "fix" would need to happen at the model layer (retraining, swapping the backend, or routing inputs through a VLM).</li>
+      <li><strong>ICR's clean-success window is narrower than the API name suggests.</strong> The companion engine-quality doc shows ICR working well on a clean print employment-application form. The "Heavenly Hamburgers" card is also print handwriting on a structured layout — yet ICR fails on it because the card has decorative graphics, lined rules, and free-form positioning. The boundary between "ICR works" and "ICR doesn't" is not "print vs. cursive" but something closer to <em>rigid form field vs. anything else</em>.</li>
+      <li><strong>The SDK could close this gap by adding a <code>Vision.transcribe()</code>-style call that uses a configured VLM provider.</strong> The Anthropic / OpenAI / Gemini APIs are already exposed by the SDK for <code>describe()</code>; reusing that plumbing with a transcription prompt would give customers a high-quality path through the SDK rather than around it.</li>
+    </ol>
+
+    <h2>Caveats</h2>
+    <ul>
+      <li>Single engineer, three images. Treat the conclusions as directional, not statistically rigorous.</li>
+      <li>Claude's transcription was performed without an explicit "be conservative / mark uncertainty" prompt. With such prompting, lower-confidence sections would be flagged rather than asserted.</li>
+      <li>This comparison did not test the case where ICR is strong: clean print handwriting in known, rigid form layouts. See the companion document <code>docs/sdk-feedback/2026-05-28-icr-engine-quality.md</code> in the same repository for that side of the picture.</li>
+    </ul>
+
+    <footer class="footer-meta">
+      <p>
+        Source files in this folder: the original
+        <a href="README.md">README</a> with the full markdown writeup, individual
+        <a href="apricot-cake-recipe.claude.md">.claude.md</a> /
+        <a href="apricot-cake-recipe.icr.txt">.icr.txt</a> transcripts per sample, and the source JPEGs.
+        Companion document with the broader 18-sample test corpus:
+        <code>docs/sdk-feedback/2026-05-28-icr-engine-quality.md</code>.
+      </p>
+    </footer>
+
+  </div>
+</body>
+</html>
