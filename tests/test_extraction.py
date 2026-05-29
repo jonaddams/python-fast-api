@@ -37,3 +37,16 @@ def test_vlm_endpoint_returns_503_when_local_vlm_unavailable(
     assert response.status_code == 503, response.text
     body = response.json()
     assert "localhost:1234" in body["detail"] or "VLM" in body["detail"]
+
+
+def test_describe_endpoint_returns_text(client: TestClient, sample_image_bytes: bytes, sample_image_name: str):
+    response = client.post(
+        "/api/extraction/describe",
+        files={"file": (sample_image_name, sample_image_bytes, "image/png")},
+        data={"provider": "claude"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["engine"] == "VLM_DESCRIBE"
+    assert body["provider"] == "claude"
+    assert isinstance(body["text"], str) and len(body["text"]) > 0

@@ -9,9 +9,9 @@ class LocalVlmUnavailable(RuntimeError):
     """Raised when VLM_ENHANCED_ICR cannot reach its local model server."""
 
 
-# SDK bug: native Close() on Vision objects SIGSEGV's on GC.
-# Retain references to prevent cleanup.
-_vision_keep_alive: list[Vision] = []
+# `_vision_keep_alive` removed 2026-05-29 after stress-testing on
+# nutrient-sdk 1.0.6 showed the native GC SIGSEGV no longer reproduces.
+# Re-add if segfaults reappear.
 
 # The demo license does not include the `vision_form` entitlement.
 # `VisionFeatures.ALL` includes FORM by default, so we explicitly opt out.
@@ -28,6 +28,49 @@ def extract_text_icr(image_bytes: bytes, original_filename: str) -> dict:
 
 def extract_text_vlm(image_bytes: bytes, original_filename: str) -> dict:
     return _extract_with_engine(image_bytes, original_filename, "VLM")
+
+
+def describe_image(
+    image_bytes: bytes,
+    original_filename: str,
+    *,
+    prompt: str | None = None,
+    provider: str = "claude",
+) -> dict:
+    """Run Vision.describe() with an optional custom prompt and provider choice."""
+    from nutrient_sdk.vlmprovider import VlmProvider
+
+    with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
+        inp.write(image_bytes)
+        inp_path = inp.name
+
+    try:
+        with Document.open(inp_path) as doc:
+            s = doc.get_settings()
+            if prompt:
+                s.get_vision_descriptor_settings().set_standard_prompt(prompt)
+            p = provider.lower()
+            if p == "claude":
+                s.get_vision_settings().set_provider(VlmProvider.CLAUDE)
+                s.get_claude_api_settings().set_api_key(os.environ["ANTHROPIC_API_KEY"])
+            elif p == "openai":
+                s.get_vision_settings().set_provider(VlmProvider.OPEN_AI)
+                s.get_open_ai_api_endpoint_settings().set_api_key(os.environ["OPENAI_API_KEY"])
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
+
+            vision = Vision.set(doc)
+            text = vision.describe()
+
+        return {
+            "engine": "VLM_DESCRIBE",
+            "filename": original_filename,
+            "provider": p,
+            "promptUsed": prompt or "(default)",
+            "text": text,
+        }
+    finally:
+        os.unlink(inp_path)
 
 
 def _extract_with_engine(image_bytes: bytes, original_filename: str, engine: str) -> dict:
@@ -48,7 +91,6 @@ def _extract_with_engine(image_bytes: bytes, original_filename: str, engine: str
             vs.set_features(_LICENSED_VISION_FEATURES)
 
             vision = Vision.set(doc)
-            _vision_keep_alive.append(vision)
             try:
                 raw_json = vision.extract_content()
             except Exception as ex:
