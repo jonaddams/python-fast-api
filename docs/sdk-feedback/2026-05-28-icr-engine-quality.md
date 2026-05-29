@@ -239,6 +239,38 @@ CALL FAIL: VisionException: Completed with 1 failure(s) out of 1 context(s). Fai
 
 **Verdict:** **The SDK supports BYO VLM via `VlmProvider.CUSTOM`.** The call attempted to reach the configured endpoint and failed at the network layer (connection refused), which proves the integration is wired through. Customers can plug in an air-gapped or self-hosted OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, internal proxies). This is a real value proposition that isn't highlighted in the comparison docs — worth surfacing.
 
+### What does each `AiAugmenter` toggle actually add?
+
+Default ICR output on `recipes/handwritten/se6kza6795yg1.jpeg` (Reddit print-handwriting recipe) had the following structure when all augmenters were enabled:
+
+- Top-level keys: `elements`, `metadata`
+- Metadata keys (per page): `dpiX`, `dpiY`, `height`, `pageNumber`, `width`
+- Element-level keys (union across all 29 elements): `altDescription`, `bounds`, `classification`, `classificationConfidence`, `confidence`, `id`, `pageNumber`, `pairs`, `readingOrder`, `role`, `text`, `type`, `words`
+
+Of these, the fields with any non-null/non-empty values across the 29 elements were:
+
+| Field | Non-null count | Sample value |
+|---|---|---|
+| `readingOrder` | 29/29 | 0, 1, 2, … |
+| `classification` | 2/29 | `"logo"` |
+| `classificationConfidence` | 2/29 | 0.712, 0.667 |
+| `pairs` | 1/29 | `[{key: "Sauce:", value: "| A C.", …}]` |
+| `altDescription` | 0/29 | (always `""`) |
+
+Toggling each flag off one at a time produced these diffs (vs the all-enabled baseline):
+
+| Toggle | Element-level keys removed | Element-level keys added | Other notes |
+|---|---|---|---|
+| `enable_content_description=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+| `enable_language_detection=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+| `enable_reading_order=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+| `enable_relationship_detection=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+| `enable_vlm_classification=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+
+A follow-up test disabling all five flags simultaneously produced the same result: element count, key set, and all field values were structurally identical to the all-enabled baseline (only element UUIDs, which regenerate on each call, differed).
+
+**Notes:** None of the five `AiAugmenter` toggles has any observable effect on ICR output — not on the key schema, not on field values (beyond non-deterministic element UUIDs). The setters are wired correctly (verified: `get_enable_reading_order()` returns `False` after `set_enable_reading_order(False)`), so the settings object accepts the changes, but the ICR engine ignores them at inference time. This is consistent with the finding in Task 4 (multi-language config no-op) and Task 1 (confidence thresholds no-op): the ICR pipeline appears to run a fixed computation regardless of most `DocumentSettings` knobs. Fields that appear correlated with augmenters (`readingOrder`, `classification`, `pairs`, `altDescription`) are emitted by the ICR model unconditionally — the toggle flags do not gate them. This may be by design (augmenters may only be respected by the OCR/VLM path), or may be a bug in the ICR settings dispatch layer. Worth raising with the SDK team.
+
 ## Demo decision
 
 The companion `nutrient-sdk-samples` demo page for ICR (`/python-sdk/icr-extraction`) ships with the `handwritten-employment-application.jpg` sample as the default — the case where ICR demonstrably works. A short copy paragraph at the top sets expectations about the engine's narrow strength rather than promising general handwriting recognition.
