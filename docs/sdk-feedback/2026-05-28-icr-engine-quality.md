@@ -100,6 +100,26 @@ For the same cursive apricot-cake recipe, Claude (via its vision capability) pro
 
 This is one engineer with two images, not a systematic benchmark — but the gap is large enough that the conclusion is robust: **a modern general-purpose VLM is dramatically better than the current Nutrient ICR engine at cursive transcription.** The same is likely true of any current major VLM (OpenAI, Anthropic, Google) given how saturated this capability is.
 
+## Tunables tested
+
+`DocumentSettings` exposes nine settings groups that touch the ICR pipeline (`handwriting_settings`, `ocr_settings`, `segmenter_settings`, `reading_order_settings`, `deskew_settings`, `inference_layout_settings`, `words_detection_settings`, `ai_augmenter_settings`, `content_extraction_settings`). The most obvious levers for the quality issues observed above were swept on the test corpus. Findings:
+
+**`HandwritingSettings.word_refining_method` — `HEURISTIC` (default) vs `VLM`.** Switching to `VLM` (with the Claude provider configured) produced byte-identical output to `HEURISTIC` on the `se6kza6795yg1.jpeg` print recipe — same 29 elements, same `fullText`. The VLM path *did* run (latency dropped from 15.5s to 7.2s, indicating a different code path), but the refining stage is downstream of segmentation and can't fix upstream misreads. Word-refining is not the lever for the quality issues we see.
+
+**`SegmenterSettings.confidence_threshold` × `WordsDetectionSettings.confidence_threshold`.** Swept 9 combinations (0.5 / 0.7 / 0.85 each) on the `se6kza6795yg1.jpeg` recipe. **Every combination produced byte-identical output** — same 29 elements, same 0.59 avg confidence, same 324 chars, same phantom "x  1  ~" prefix from the decorative card elements. The documented confidence knobs are not gating the engine's final output. This is its own finding worth surfacing: a documented tunable that has no observable effect.
+
+**`DeskewSettings`.** Tested on the tilted `dear-magnus-thank-you-note.jpg`:
+
+| Config | Elements | Avg conf | Output character |
+|---|---|---|---|
+| Default (deskew on, tol=15°) | 5 | 0.71 | Coherent paragraph structure with mangled words |
+| Deskew off | 6 | **0.81** | Higher confidence, but words from different parts of the letter scrambled into a single string |
+| Tol=45° or 60° | 5 | 0.71 | Identical to default — 15° was already sufficient |
+
+Deskew doesn't improve recognition accuracy at the word level — both versions have terrible word accuracy on cursive. What it does is recover **reading order**. With deskew off, you get a word salad where adjacent fragments physically belong on different lines. With it, you get paragraphs of incoherent text. Counterintuitively, deskew-off produced *higher* reported confidence (0.81 vs 0.71) — another data point that ICR confidence is not correlated with output quality.
+
+**Net takeaway on tunables.** The recognition model itself is not configurable; only the surrounding pipeline. The configurable knobs we tested either had no effect (confidence thresholds) or moved the failure mode without improving accuracy (deskew, word-refining method). There is no combination of documented settings that closes the gap to a general-purpose VLM on the test samples.
+
 ## Notes on `Vision.describe()`
 
 `Vision.describe()` with the Claude provider was tested and **does not transcribe**. It returns a meta-description of the document ("This is a handwritten recipe card on aged, cream-colored paper with visible staining and discoloration..."). For transcription via Claude, customers would need to either bypass the SDK and call the Anthropic API directly with a custom prompt, or the SDK would need to expose a `transcribe()`-style call (or a custom-prompt parameter on `describe()`).
@@ -110,6 +130,7 @@ This is one engineer with two images, not a systematic benchmark — but the gap
 2. **Add a `transcribe()` or prompt-customizable VLM path.** If a customer wants accurate transcription of cursive handwriting today, they cannot get it through the SDK — they have to leave the SDK entirely and use a third-party VLM API. The SDK could front-end Claude / OpenAI / Gemini with a transcription-specific prompt and offer it as `Vision.transcribe()` or similar.
 3. **Consider retraining or replacing the ICR backend.** The current model appears to be confidently wrong on out-of-distribution inputs (high confidence + incorrect output is worse than low confidence + correct output, because customers will trust the confidence). If retraining is not feasible, routing cursive inputs through a hosted VLM may be the more pragmatic fix.
 4. **Decouple confidence reporting from internal model certainty.** The 0.79 confidence on the gibberish-producing journal page suggests the score reflects the model's certainty about its own predictions, not the predictions' correctness. A calibrated confidence would let downstream code reject low-quality outputs.
+5. **Investigate why the documented confidence thresholds appear to be no-ops on ICR.** `SegmenterSettings.confidence_threshold` and `WordsDetectionSettings.confidence_threshold` both default to 0.5 and accept values up to 1.0, but sweeping them through 0.5 / 0.7 / 0.85 on the print-recipe sample produced byte-identical output. Either the thresholds are wired into a different code path than ICR, or they're documented as configurable while the binary ignores them. Either way it surprises a customer who expects them to gate the output.
 
 ## Demo decision
 
