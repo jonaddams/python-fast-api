@@ -293,6 +293,15 @@ Names duplicated (appear 2+ times): []
 
 The companion `nutrient-sdk-samples` demo page for ICR (`/python-sdk/icr-extraction`) ships with the `handwritten-employment-application.jpg` sample as the default — the case where ICR demonstrably works. A short copy paragraph at the top sets expectations about the engine's narrow strength rather than promising general handwriting recognition.
 
+### `_vision_keep_alive` workaround status on 1.0.6
+
+A module-level list `_vision_keep_alive` in `app/services/extraction.py` retained every `Vision` object to dodge a native-GC SIGSEGV from `nutrient-sdk` 1.0.2/1.0.3. Retested on 1.0.6:
+
+- **Stress run (30× OCR + 30× ICR) with workaround in place:** completed cleanly
+- **Stress run (50× OCR + 50× ICR) with workaround removed:** completed cleanly
+
+**Verdict:** **Bug fixed on 1.0.6 — workaround removed in this commit.** 100 consecutive ICR/OCR calls with no SIGSEGV. The unbounded list growth and its memory implications are now gone.
+
 ## Raw outputs
 
 All 18 ICR transcripts are at `recipes/icr-results/*.txt` in this repository's working tree (not committed — the source images are not redistributable). Comparison transcripts for the two Claude-spike images live in this document.

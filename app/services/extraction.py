@@ -9,9 +9,9 @@ class LocalVlmUnavailable(RuntimeError):
     """Raised when VLM_ENHANCED_ICR cannot reach its local model server."""
 
 
-# SDK bug: native Close() on Vision objects SIGSEGV's on GC.
-# Retain references to prevent cleanup.
-_vision_keep_alive: list[Vision] = []
+# `_vision_keep_alive` removed 2026-05-29 after stress-testing on
+# nutrient-sdk 1.0.6 showed the native GC SIGSEGV no longer reproduces.
+# Re-add if segfaults reappear.
 
 # The demo license does not include the `vision_form` entitlement.
 # `VisionFeatures.ALL` includes FORM by default, so we explicitly opt out.
@@ -60,7 +60,6 @@ def describe_image(
                 raise ValueError(f"Unsupported provider: {provider}")
 
             vision = Vision.set(doc)
-            _vision_keep_alive.append(vision)
             text = vision.describe()
 
         return {
@@ -92,7 +91,6 @@ def _extract_with_engine(image_bytes: bytes, original_filename: str, engine: str
             vs.set_features(_LICENSED_VISION_FEATURES)
 
             vision = Vision.set(doc)
-            _vision_keep_alive.append(vision)
             try:
                 raw_json = vision.extract_content()
             except Exception as ex:
