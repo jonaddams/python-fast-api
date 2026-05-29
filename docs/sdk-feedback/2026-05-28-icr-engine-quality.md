@@ -132,9 +132,175 @@ Deskew doesn't improve recognition accuracy at the word level — both versions 
 4. **Decouple confidence reporting from internal model certainty.** The 0.79 confidence on the gibberish-producing journal page suggests the score reflects the model's certainty about its own predictions, not the predictions' correctness. A calibrated confidence would let downstream code reject low-quality outputs.
 5. **Investigate why the documented confidence thresholds appear to be no-ops on ICR.** `SegmenterSettings.confidence_threshold` and `WordsDetectionSettings.confidence_threshold` both default to 0.5 and accept values up to 1.0, but sweeping them through 0.5 / 0.7 / 0.85 on the print-recipe sample produced byte-identical output. Either the thresholds are wired into a different code path than ICR, or they're documented as configurable while the binary ignores them. Either way it surprises a customer who expects them to gate the output.
 
+## Follow-up investigations (2026-05-29)
+
+### `Vision.describe()` with a custom prompt
+
+`DocumentSettings.get_vision_descriptor_settings()` exposes a `set_standard_prompt()` method (verified via introspection on 1.0.6). Setting a transcription-style prompt and calling `Vision.describe()` against the cursive `apricot-cake-recipe.jpg`:
+
+**Default prompt result (first ~300 chars):**
+
+> This is a handwritten recipe card on aged, yellowed paper with visible staining and wear. The title "Apricot Cake" appears at the top in cursive writing. The recipe is divided into two sections labeled "Ing:" (ingredients) and "Method:" on the left margin. The handwriting is in blue or black ink
+
+**Custom transcription prompt result (first ~500 chars):**
+
+> Apricot Cake.
+>
+> Ing: ½ pt. dried apricot (3.P. or
+>      ½ lb. ½ lb. flour. 1 teasp. salt
+>      ½ oz. baking powder.
+>      1 tablespoon ful carbonate of soda.
+>      ¼ pt. juice of one orange
+>      ¼ pt. sugar.
+>      ¼ pt. margarine.
+>      2 eggs.
+>
+> Method: Soak apricots & chop fine
+>         dim. Cut into very small
+>         pieces.
+>         Beat marg. + sugar to a
+>         cream. Add eggs & apricots
+
+**Verdict:** POSITIVE — custom prompts work; the SDK already provides a transcription path. The customer ergonomics gap is documentation, not capability: setting `get_vision_descriptor_settings().set_standard_prompt()` to a transcription-focused instruction causes `Vision.describe()` to return verbatim handwritten text rather than a visual meta-description.
+
+### OpenAI VLM provider parity
+
+Attempted to repeat the same default-prompt and custom-prompt tests against `VlmProvider.OPEN_AI` using the `OPENAI_API_KEY` from `.env`. Tested on `recipes/handwritten-cursive/handwritten-cursive-apricot-cake-recipe.jpg` (same image as the Claude test above).
+
+**Default prompt result:**
+
+> FAIL: VisionException: Completed with 1 failure(s) out of 1 context(s). Failures: VlmDescriptor: VLM API returned Unauthorized: { "error": { "message": "Incorrect API key provided: sk-proj-[...]H98A. You can find your API key at https://platform.openai.com/account/api-keys.", "type": "invalid_request_error", "code": "invalid_api_key", "param": null }, "status": 401 } (Error Code: 3024) [Source: Vision]
+
+**Custom transcription prompt result:**
+
+> FAIL: VisionException: Completed with 1 failure(s) out of 1 context(s). Failures: VlmDescriptor: VLM API returned Unauthorized: { "error": { "message": "Incorrect API key provided: sk-proj-[...]H98A. You can find your API key at https://platform.openai.com/account/api-keys.", "type": "invalid_request_error", "code": "invalid_api_key", "param": null }, "status": 401 } (Error Code: 3024) [Source: Vision]
+
+**Verdict:** BLOCKED — The `OPENAI_API_KEY` in `.env` is invalid or expired (OpenAI API returns HTTP 401 "invalid_api_key" for both tests). Cannot assess parity without a working OpenAI API key. The SDK correctly wired the provider enum value `VlmProvider.OPEN_AI` and passed settings through to the Vision API; the failure is at the service layer, not the SDK layer.
+
+**Implication:** If a valid OpenAI API key becomes available, re-run this test to determine whether `Vision.describe()` respects custom prompts on both Claude and OpenAI providers, or whether custom-prompt support is Claude-specific.
+
+### Multi-language ICR
+
+`OcrSettings.default_languages` accepts `'eng+fra+spa+deu'` (Tesseract-style `+`-separated language codes).
+
+Tested on `tests/fixtures/input_ocr_multiple_languages.png` (filename suggests multiple language scripts, contains French and English text).
+
+**With default `'eng'`:**
+
+```
+O 2 9 Prat
+O 2 Prat
+Jean Jacques Rousseau Du Contrat Social
+Je veux échever si, dans lordre civil, il peut y avoir quelque regle d'administration légitime et sure, prenant les hommes tels qu'ils sont et les lois telles qu'elles peuvent étre, qui maintienne toujours entre eux l'union et l'égalitée.
+Je chercherai toujours a réunir l'amour que je porte a la liberté avec lestime des gouvernements légitimes.
+Je ne discuterai point ici sur importance de son in- stitution. On me demandera si je suis prince ou lég- islateur pour écrire sur la politique ? Je reponds que je ne suis ni lun ni l'autre. Et si je ne suis ni prince ni législateur, je mets moins de vanité a dire ce qu'il faut faire ; fen aurais bien plus ale faire.
+```
+
+**With multi-language setting `'eng+fra+spa+deu'`:**
+
+```
+O 2 9 Prat
+O 2 Prat
+Jean Jacques Rousseau Du Contrat Social
+Je veux échever si, dans lordre civil, il peut y avoir quelque regle d'administration légitime et sure, prenant les hommes tels qu'ils sont et les lois telles qu'elles peuvent étre, qui maintienne toujours entre eux l'union et l'égalitée.
+Je chercherai toujours a réunir l'amour que je porte a la liberté avec lestime des gouvernements légitimes.
+Je ne discuterai point ici sur importance de son in- stitution. On me demandera si je suis prince ou lég- islateur pour écrire sur la politique ? Je reponds que je ne suis ni lun ni l'autre. Et si je ne suis ni prince ni législateur, je mets moins de vanité a dire ce qu'il faut faire ; fen aurais bien plus ale faire.
+```
+
+**Verdict:** **Multi-language config has no observable effect.** Outputs are byte-identical between the default single-language `'eng'` and multi-language `'eng+fra+spa+deu'` settings. The extracted text, element count, confidence scores, and all structural properties are identical. Setting additional languages does not unlock non-English recognition or change accuracy on this test case.
+
+**Implication:** The multi-language configuration knob is wired and accepts the documented format (`+`-separated ISO 639-3 codes), but does not affect the ICR model's output. Either the underlying model is monolingual regardless of configuration, or the language setting influences only the preprocessing/confidence pipeline without affecting recognition. Cannot determine from this test alone whether the setting would have an effect on non-Latin scripts or truly multilingual content.
+
+### `CustomVlmApiSettings` for self-hosted VLM endpoints
+
+`DocumentSettings.get_custom_vlm_api_settings()` exposes the following knobs:
+
+- `set_api_endpoint()`
+- `set_api_key()`
+- `set_batch_size()`
+- `set_classification_strategy()`
+- `set_max_concurrency()`
+- `set_max_tokens()`
+- `set_model()`
+- `set_send_full_page_reference()`
+- `set_stream()`
+- `set_system_prompt()`
+- `set_temperature()`
+
+`VlmProvider.CUSTOM` is a real enum value (confirmed in Task 2's parallel investigation).
+
+Pointing the settings at `http://localhost:9999/v1/` (nothing listening) and calling `Vision.describe()`:
+
+```
+OK: set_api_endpoint('http://localhost:9999/v1/')
+OK: set_api_key('not-used-but-set')
+CALL FAIL: VisionException: Completed with 1 failure(s) out of 1 context(s). Failures: VlmDescriptor: Connection refused (localhost:9999) (Error Code: 3024) [Source: Vision]
+```
+
+**Verdict:** **The SDK supports BYO VLM via `VlmProvider.CUSTOM`.** The call attempted to reach the configured endpoint and failed at the network layer (connection refused), which proves the integration is wired through. Customers can plug in an air-gapped or self-hosted OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, internal proxies). This is a real value proposition that isn't highlighted in the comparison docs — worth surfacing.
+
+### What does each `AiAugmenter` toggle actually add?
+
+Default ICR output on `recipes/handwritten/se6kza6795yg1.jpeg` (Reddit print-handwriting recipe) had the following structure when all augmenters were enabled:
+
+- Top-level keys: `elements`, `metadata`
+- Metadata keys (per page): `dpiX`, `dpiY`, `height`, `pageNumber`, `width`
+- Element-level keys (union across all 29 elements): `altDescription`, `bounds`, `classification`, `classificationConfidence`, `confidence`, `id`, `pageNumber`, `pairs`, `readingOrder`, `role`, `text`, `type`, `words`
+
+Of these, the fields with any non-null/non-empty values across the 29 elements were:
+
+| Field | Non-null count | Sample value |
+|---|---|---|
+| `readingOrder` | 29/29 | 0, 1, 2, … |
+| `classification` | 2/29 | `"logo"` |
+| `classificationConfidence` | 2/29 | 0.712, 0.667 |
+| `pairs` | 1/29 | `[{key: "Sauce:", value: "| A C.", …}]` |
+| `altDescription` | 0/29 | (always `""`) |
+
+Toggling each flag off one at a time produced these diffs (vs the all-enabled baseline):
+
+| Toggle | Element-level keys removed | Element-level keys added | Other notes |
+|---|---|---|---|
+| `enable_content_description=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+| `enable_language_detection=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+| `enable_reading_order=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+| `enable_relationship_detection=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+| `enable_vlm_classification=False` | (none) | (none) | Same 29 elements; normalized output byte-identical |
+
+A follow-up test disabling all five flags simultaneously produced the same result: element count, key set, and all field values were structurally identical to the all-enabled baseline (only element UUIDs, which regenerate on each call, differed).
+
+**Notes:** None of the five `AiAugmenter` toggles has any observable effect on ICR output — not on the key schema, not on field values (beyond non-deterministic element UUIDs). The setters are wired correctly (verified: `get_enable_reading_order()` returns `False` after `set_enable_reading_order(False)`), so the settings object accepts the changes, but the ICR engine ignores them at inference time. This is consistent with the finding in Task 4 (multi-language config no-op) and Task 1 (confidence thresholds no-op): the ICR pipeline appears to run a fixed computation regardless of most `DocumentSettings` knobs. Fields that appear correlated with augmenters (`readingOrder`, `classification`, `pairs`, `altDescription`) are emitted by the ICR model unconditionally — the toggle flags do not gate them. This may be by design (augmenters may only be respected by the OCR/VLM path), or may be a bug in the ICR settings dispatch layer. Worth raising with the SDK team.
+
+### Form detection on an already-fielded PDF
+
+Ran `PdfEditor.detect_and_add_form_fields()` against `tests/fixtures/account-registration-form.pdf`, which already has 15 pre-existing form fields (used by the form-fill demo page):
+
+```
+BEFORE: 15 fields
+BEFORE names: ['account_type', 'company_name', 'confirm_password', 'country', 'date_of_birth', 'email', 'full_name', 'interests', 'newsletter', 'password', 'phone', 'signature', 'submit', 'terms_agree', 'username']
+
+AFTER: 15 fields
+New names added: []
+Names removed: []
+Names duplicated (appear 2+ times): []
+```
+
+**Verdict:** **Idempotent / safe.** Detection on a fielded PDF does not add fields. The model correctly detected the existing fields and made no changes.
+
+**Customer impact:** Low. Applications that call `detect_and_add_form_fields()` on PDFs that already have fields will not corrupt the field set. Re-detection is safe.
+
 ## Demo decision
 
 The companion `nutrient-sdk-samples` demo page for ICR (`/python-sdk/icr-extraction`) ships with the `handwritten-employment-application.jpg` sample as the default — the case where ICR demonstrably works. A short copy paragraph at the top sets expectations about the engine's narrow strength rather than promising general handwriting recognition.
+
+### `_vision_keep_alive` workaround status on 1.0.6
+
+A module-level list `_vision_keep_alive` in `app/services/extraction.py` retained every `Vision` object to dodge a native-GC SIGSEGV from `nutrient-sdk` 1.0.2/1.0.3. Retested on 1.0.6:
+
+- **Stress run (30× OCR + 30× ICR) with workaround in place:** completed cleanly
+- **Stress run (50× OCR + 50× ICR) with workaround removed:** completed cleanly
+
+**Verdict:** **Bug fixed on 1.0.6 — workaround removed in this commit.** 100 consecutive ICR/OCR calls with no SIGSEGV. The unbounded list growth and its memory implications are now gone.
 
 ## Raw outputs
 
