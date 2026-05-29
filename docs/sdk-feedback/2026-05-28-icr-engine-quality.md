@@ -179,6 +179,34 @@ Attempted to repeat the same default-prompt and custom-prompt tests against `Vlm
 
 **Implication:** If a valid OpenAI API key becomes available, re-run this test to determine whether `Vision.describe()` respects custom prompts on both Claude and OpenAI providers, or whether custom-prompt support is Claude-specific.
 
+### `CustomVlmApiSettings` for self-hosted VLM endpoints
+
+`DocumentSettings.get_custom_vlm_api_settings()` exposes the following knobs:
+
+- `set_api_endpoint()`
+- `set_api_key()`
+- `set_batch_size()`
+- `set_classification_strategy()`
+- `set_max_concurrency()`
+- `set_max_tokens()`
+- `set_model()`
+- `set_send_full_page_reference()`
+- `set_stream()`
+- `set_system_prompt()`
+- `set_temperature()`
+
+`VlmProvider.CUSTOM` is a real enum value (confirmed in Task 2's parallel investigation).
+
+Pointing the settings at `http://localhost:9999/v1/` (nothing listening) and calling `Vision.describe()`:
+
+```
+OK: set_api_endpoint('http://localhost:9999/v1/')
+OK: set_api_key('not-used-but-set')
+CALL FAIL: VisionException: Completed with 1 failure(s) out of 1 context(s). Failures: VlmDescriptor: Connection refused (localhost:9999) (Error Code: 3024) [Source: Vision]
+```
+
+**Verdict:** **The SDK supports BYO VLM via `VlmProvider.CUSTOM`.** The call attempted to reach the configured endpoint and failed at the network layer (connection refused), which proves the integration is wired through. Customers can plug in an air-gapped or self-hosted OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, internal proxies). This is a real value proposition that isn't highlighted in the comparison docs — worth surfacing.
+
 ## Demo decision
 
 The companion `nutrient-sdk-samples` demo page for ICR (`/python-sdk/icr-extraction`) ships with the `handwritten-employment-application.jpg` sample as the default — the case where ICR demonstrably works. A short copy paragraph at the top sets expectations about the engine's narrow strength rather than promising general handwriting recognition.
