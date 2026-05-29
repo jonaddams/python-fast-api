@@ -132,6 +132,37 @@ Deskew doesn't improve recognition accuracy at the word level — both versions 
 4. **Decouple confidence reporting from internal model certainty.** The 0.79 confidence on the gibberish-producing journal page suggests the score reflects the model's certainty about its own predictions, not the predictions' correctness. A calibrated confidence would let downstream code reject low-quality outputs.
 5. **Investigate why the documented confidence thresholds appear to be no-ops on ICR.** `SegmenterSettings.confidence_threshold` and `WordsDetectionSettings.confidence_threshold` both default to 0.5 and accept values up to 1.0, but sweeping them through 0.5 / 0.7 / 0.85 on the print-recipe sample produced byte-identical output. Either the thresholds are wired into a different code path than ICR, or they're documented as configurable while the binary ignores them. Either way it surprises a customer who expects them to gate the output.
 
+## Follow-up investigations (2026-05-29)
+
+### `Vision.describe()` with a custom prompt
+
+`DocumentSettings.get_vision_descriptor_settings()` exposes a `set_standard_prompt()` method (verified via introspection on 1.0.6). Setting a transcription-style prompt and calling `Vision.describe()` against the cursive `apricot-cake-recipe.jpg`:
+
+**Default prompt result (first ~300 chars):**
+
+> This is a handwritten recipe card on aged, yellowed paper with visible staining and wear. The title "Apricot Cake" appears at the top in cursive writing. The recipe is divided into two sections labeled "Ing:" (ingredients) and "Method:" on the left margin. The handwriting is in blue or black ink
+
+**Custom transcription prompt result (first ~500 chars):**
+
+> Apricot Cake.
+>
+> Ing: ½ pt. dried apricot (3.P. or
+>      ½ lb. ½ lb. flour. 1 teasp. salt
+>      ½ oz. baking powder.
+>      1 tablespoon ful carbonate of soda.
+>      ¼ pt. juice of one orange
+>      ¼ pt. sugar.
+>      ¼ pt. margarine.
+>      2 eggs.
+>
+> Method: Soak apricots & chop fine
+>         dim. Cut into very small
+>         pieces.
+>         Beat marg. + sugar to a
+>         cream. Add eggs & apricots
+
+**Verdict:** POSITIVE — custom prompts work; the SDK already provides a transcription path. The customer ergonomics gap is documentation, not capability: setting `get_vision_descriptor_settings().set_standard_prompt()` to a transcription-focused instruction causes `Vision.describe()` to return verbatim handwritten text rather than a visual meta-description.
+
 ## Demo decision
 
 The companion `nutrient-sdk-samples` demo page for ICR (`/python-sdk/icr-extraction`) ships with the `handwritten-employment-application.jpg` sample as the default — the case where ICR demonstrably works. A short copy paragraph at the top sets expectations about the engine's narrow strength rather than promising general handwriting recognition.

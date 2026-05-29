@@ -30,6 +30,50 @@ def extract_text_vlm(image_bytes: bytes, original_filename: str) -> dict:
     return _extract_with_engine(image_bytes, original_filename, "VLM")
 
 
+def describe_image(
+    image_bytes: bytes,
+    original_filename: str,
+    *,
+    prompt: str | None = None,
+    provider: str = "claude",
+) -> dict:
+    """Run Vision.describe() with an optional custom prompt and provider choice."""
+    from nutrient_sdk.vlmprovider import VlmProvider
+
+    with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
+        inp.write(image_bytes)
+        inp_path = inp.name
+
+    try:
+        with Document.open(inp_path) as doc:
+            s = doc.get_settings()
+            if prompt:
+                s.get_vision_descriptor_settings().set_standard_prompt(prompt)
+            p = provider.lower()
+            if p == "claude":
+                s.get_vision_settings().set_provider(VlmProvider.CLAUDE)
+                s.get_claude_api_settings().set_api_key(os.environ["ANTHROPIC_API_KEY"])
+            elif p == "openai":
+                s.get_vision_settings().set_provider(VlmProvider.OPENAI)
+                s.get_open_ai_api_endpoint_settings().set_api_key(os.environ["OPENAI_API_KEY"])
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
+
+            vision = Vision.set(doc)
+            _vision_keep_alive.append(vision)
+            text = vision.describe()
+
+        return {
+            "engine": "VLM_DESCRIBE",
+            "filename": original_filename,
+            "provider": p,
+            "promptUsed": prompt or "(default)",
+            "text": text,
+        }
+    finally:
+        os.unlink(inp_path)
+
+
 def _extract_with_engine(image_bytes: bytes, original_filename: str, engine: str) -> dict:
     with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
         inp.write(image_bytes)
