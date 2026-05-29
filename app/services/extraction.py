@@ -54,7 +54,7 @@ def describe_image(
                 s.get_vision_settings().set_provider(VlmProvider.CLAUDE)
                 s.get_claude_api_settings().set_api_key(os.environ["ANTHROPIC_API_KEY"])
             elif p == "openai":
-                s.get_vision_settings().set_provider(VlmProvider.OPENAI)
+                s.get_vision_settings().set_provider(VlmProvider.OPEN_AI)
                 s.get_open_ai_api_endpoint_settings().set_api_key(os.environ["OPENAI_API_KEY"])
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
