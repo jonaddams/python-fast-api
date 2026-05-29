@@ -547,6 +547,16 @@
       </tbody>
     </table>
 
+    <!-- ============== TUNING ============== -->
+    <h2>What about tuning ICR?</h2>
+    <p>Before concluding, we exercised the obvious knobs the SDK exposes for ICR. None closed the gap.</p>
+    <ul>
+      <li><strong>Confidence thresholds.</strong> <code>SegmenterSettings.confidence_threshold</code> × <code>WordsDetectionSettings.confidence_threshold</code> swept across nine combinations (0.5 / 0.7 / 0.85 each) on the Heavenly Hamburgers sample. <strong>Every combination produced byte-identical output</strong> — 29 elements, 0.59 avg confidence, same 324-char text including the phantom "x  1  ~" prefix. The documented confidence knobs do not gate ICR's final output.</li>
+      <li><strong>VLM word refining.</strong> <code>HandwritingSettings.word_refining_method</code> was switched from <code>HEURISTIC</code> (default) to <code>VLM</code> with Claude configured. The VLM path <em>did</em> run (latency dropped from 15.5s to 7.2s) but the text output was byte-identical to heuristic mode. Word-refining is downstream of segmentation and can't fix upstream misreads.</li>
+      <li><strong>Deskew.</strong> Tested on the tilted Dear Magnus letter. Default 15° tolerance and raised tolerances (45°, 60°) gave identical output. Disabling deskew produced <em>higher</em> reported confidence (0.81 vs 0.71) but the words came back scrambled in spatial fragments. Deskew restores reading order, not word-level accuracy.</li>
+    </ul>
+    <p>There is no combination of documented settings that closes the gap to Claude on the test samples. The recognition model itself is not configurable; only the surrounding pipeline.</p>
+
     <!-- ============== IMPLICATIONS ============== -->
     <h2>Practical implications</h2>
     <ol class="implications">

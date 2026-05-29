@@ -122,6 +122,16 @@ This is the case ICR is supposed to be good at: clean, block-style print handwri
 | **Reported confidence vs. truth** | n/a (no confidence score) | 0.59 / 0.64 / 0.71 — uncorrelated with actual quality |
 | **Latency (single image, this hardware)** | n/a (in-model) | 7.4s / 5.5s / 1.4s for ICR |
 
+## What about tuning ICR?
+
+Before concluding, we exercised the obvious knobs the SDK exposes for ICR. None closed the gap.
+
+- **Confidence thresholds** — `SegmenterSettings.confidence_threshold` × `WordsDetectionSettings.confidence_threshold` swept across nine combinations (0.5 / 0.7 / 0.85 each) on the Heavenly Hamburgers sample. **Every combination produced byte-identical output** (29 elements, 0.59 avg conf, same 324-char text including the phantom "x  1  ~" prefix). The documented confidence knobs do not gate ICR's final output.
+- **VLM word refining** — `HandwritingSettings.word_refining_method` was switched from `HEURISTIC` (default) to `VLM` with Claude configured. The VLM path *did* run (latency dropped from 15.5s to 7.2s) but the text output was byte-identical to heuristic mode. Word-refining is downstream of segmentation and can't fix upstream misreads.
+- **Deskew** — Tested on the tilted Dear Magnus letter. Default (15° tolerance) and raised tolerances (45°, 60°) gave identical output. Disabling deskew produced *higher* reported confidence (0.81 vs 0.71) but the words came back scrambled in spatial fragments. Deskew restores reading order, not word-level accuracy.
+
+There is no combination of documented settings that closes the gap to Claude on the test samples. The recognition model itself is not configurable; only the surrounding pipeline.
+
 ## Practical implications
 
 1. **For real-world handwriting transcription today — print *or* cursive — a general-purpose VLM dominates Nutrient ICR.** Customers with this workload should not be steered to ICR. The print-handwriting case was expected to be ICR's strength; the structured recipe card shows that "expected strength" still produces output that's not extractable for downstream use.
