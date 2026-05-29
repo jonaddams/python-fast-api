@@ -163,6 +163,22 @@ Deskew doesn't improve recognition accuracy at the word level — both versions 
 
 **Verdict:** POSITIVE — custom prompts work; the SDK already provides a transcription path. The customer ergonomics gap is documentation, not capability: setting `get_vision_descriptor_settings().set_standard_prompt()` to a transcription-focused instruction causes `Vision.describe()` to return verbatim handwritten text rather than a visual meta-description.
 
+### OpenAI VLM provider parity
+
+Attempted to repeat the same default-prompt and custom-prompt tests against `VlmProvider.OPEN_AI` using the `OPENAI_API_KEY` from `.env`. Tested on `recipes/handwritten-cursive/handwritten-cursive-apricot-cake-recipe.jpg` (same image as the Claude test above).
+
+**Default prompt result:**
+
+> FAIL: VisionException: Completed with 1 failure(s) out of 1 context(s). Failures: VlmDescriptor: VLM API returned Unauthorized: { "error": { "message": "Incorrect API key provided: sk-proj-[...]H98A. You can find your API key at https://platform.openai.com/account/api-keys.", "type": "invalid_request_error", "code": "invalid_api_key", "param": null }, "status": 401 } (Error Code: 3024) [Source: Vision]
+
+**Custom transcription prompt result:**
+
+> FAIL: VisionException: Completed with 1 failure(s) out of 1 context(s). Failures: VlmDescriptor: VLM API returned Unauthorized: { "error": { "message": "Incorrect API key provided: sk-proj-[...]H98A. You can find your API key at https://platform.openai.com/account/api-keys.", "type": "invalid_request_error", "code": "invalid_api_key", "param": null }, "status": 401 } (Error Code: 3024) [Source: Vision]
+
+**Verdict:** BLOCKED — The `OPENAI_API_KEY` in `.env` is invalid or expired (OpenAI API returns HTTP 401 "invalid_api_key" for both tests). Cannot assess parity without a working OpenAI API key. The SDK correctly wired the provider enum value `VlmProvider.OPEN_AI` and passed settings through to the Vision API; the failure is at the service layer, not the SDK layer.
+
+**Implication:** If a valid OpenAI API key becomes available, re-run this test to determine whether `Vision.describe()` respects custom prompts on both Claude and OpenAI providers, or whether custom-prompt support is Claude-specific.
+
 ## Demo decision
 
 The companion `nutrient-sdk-samples` demo page for ICR (`/python-sdk/icr-extraction`) ships with the `handwritten-employment-application.jpg` sample as the default — the case where ICR demonstrably works. A short copy paragraph at the top sets expectations about the engine's narrow strength rather than promising general handwriting recognition.
