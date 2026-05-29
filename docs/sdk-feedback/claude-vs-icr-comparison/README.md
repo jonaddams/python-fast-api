@@ -140,6 +140,16 @@ There is no combination of documented settings that closes the gap to Claude on 
 4. **ICR's clean-success window is narrower than the API name suggests.** The companion engine-quality doc shows ICR working well on a clean print employment-application form (`handwritten-employment-application.jpg`). The "Heavenly Hamburgers" card here is also print handwriting on a structured layout — yet ICR fails on it because the card has decorative graphics, lined rules, and free-form positioning that the model gets confused by. The boundary between "ICR works" and "ICR doesn't" is not "print vs. cursive" but something closer to "rigid form field vs. anything else."
 5. **The SDK could close this gap by adding a `Vision.transcribe()`-style call that uses a configured VLM provider.** The Anthropic / OpenAI / Gemini APIs are already exposed by the SDK for `describe()`; reusing that plumbing with a transcription prompt would give customers a high-quality path through the SDK rather than around it.
 
+## Specific feedback for the engineering team
+
+Distinct from the customer-facing implications above. SDK-level changes that would help; each is independent and could be picked up on its own.
+
+1. **Add a `prompt` parameter to `Vision.describe()` (or a new `Vision.transcribe()`).** Customers who want VLM-quality output today have to bypass the SDK entirely and call the provider directly — that's lost retention. The SDK already has API-key plumbing for Claude/OpenAI; exposing the prompt is a small change with a large impact.
+2. **Wire up — or stop documenting — `SegmenterSettings.confidence_threshold` and `WordsDetectionSettings.confidence_threshold` for ICR.** Both are documented as configurable but sweeping them produced byte-identical output. Either fix the wiring or remove them from the API surface.
+3. **Document which settings affect which engine.** `DocumentSettings` exposes ~35 `get_*_settings()` accessors with no clear map of OCR vs ICR vs form-detection. A customer tuning `SegmenterSettings` reasonably expects it to affect every Vision call — it doesn't.
+4. **Add a remediation hint to license-feature errors.** "InvalidLicenseException: feature 'vision_form'" is correct but unhelpful. Adding "Contact sales for a license with this feature, or pass `VisionFeatures.ALL.value - VisionFeatures.FORM.value` to `set_features()` to skip it" turns a dead end into a path. Two customer demos hit this wall in one day; the fix is a single string.
+5. **Benchmark ICR against Google Document AI / AWS Textract / Azure Document Intelligence.** The Claude comparison shows ICR loses to a general-purpose VLM. The real competitive context, though, is industry document-understanding APIs. If those also beat ICR, that's the story. If they don't, ICR has a defensible niche worth articulating (probably "private, no per-token cost, runs offline").
+
 ## Caveats
 
 - Single engineer, three images. Treat the conclusions as directional, not statistically rigorous.
