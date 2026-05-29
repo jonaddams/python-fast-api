@@ -179,6 +179,38 @@ Attempted to repeat the same default-prompt and custom-prompt tests against `Vlm
 
 **Implication:** If a valid OpenAI API key becomes available, re-run this test to determine whether `Vision.describe()` respects custom prompts on both Claude and OpenAI providers, or whether custom-prompt support is Claude-specific.
 
+### Multi-language ICR
+
+`OcrSettings.default_languages` accepts `'eng+fra+spa+deu'` (Tesseract-style `+`-separated language codes).
+
+Tested on `tests/fixtures/input_ocr_multiple_languages.png` (filename suggests multiple language scripts, contains French and English text).
+
+**With default `'eng'`:**
+
+```
+O 2 9 Prat
+O 2 Prat
+Jean Jacques Rousseau Du Contrat Social
+Je veux échever si, dans lordre civil, il peut y avoir quelque regle d'administration légitime et sure, prenant les hommes tels qu'ils sont et les lois telles qu'elles peuvent étre, qui maintienne toujours entre eux l'union et l'égalitée.
+Je chercherai toujours a réunir l'amour que je porte a la liberté avec lestime des gouvernements légitimes.
+Je ne discuterai point ici sur importance de son in- stitution. On me demandera si je suis prince ou lég- islateur pour écrire sur la politique ? Je reponds que je ne suis ni lun ni l'autre. Et si je ne suis ni prince ni législateur, je mets moins de vanité a dire ce qu'il faut faire ; fen aurais bien plus ale faire.
+```
+
+**With multi-language setting `'eng+fra+spa+deu'`:**
+
+```
+O 2 9 Prat
+O 2 Prat
+Jean Jacques Rousseau Du Contrat Social
+Je veux échever si, dans lordre civil, il peut y avoir quelque regle d'administration légitime et sure, prenant les hommes tels qu'ils sont et les lois telles qu'elles peuvent étre, qui maintienne toujours entre eux l'union et l'égalitée.
+Je chercherai toujours a réunir l'amour que je porte a la liberté avec lestime des gouvernements légitimes.
+Je ne discuterai point ici sur importance de son in- stitution. On me demandera si je suis prince ou lég- islateur pour écrire sur la politique ? Je reponds que je ne suis ni lun ni l'autre. Et si je ne suis ni prince ni législateur, je mets moins de vanité a dire ce qu'il faut faire ; fen aurais bien plus ale faire.
+```
+
+**Verdict:** **Multi-language config has no observable effect.** Outputs are byte-identical between the default single-language `'eng'` and multi-language `'eng+fra+spa+deu'` settings. The extracted text, element count, confidence scores, and all structural properties are identical. Setting additional languages does not unlock non-English recognition or change accuracy on this test case.
+
+**Implication:** The multi-language configuration knob is wired and accepts the documented format (`+`-separated ISO 639-3 codes), but does not affect the ICR model's output. Either the underlying model is monolingual regardless of configuration, or the language setting influences only the preprocessing/confidence pipeline without affecting recognition. Cannot determine from this test alone whether the setting would have an effect on non-Latin scripts or truly multilingual content.
+
 ### `CustomVlmApiSettings` for self-hosted VLM endpoints
 
 `DocumentSettings.get_custom_vlm_api_settings()` exposes the following knobs:
