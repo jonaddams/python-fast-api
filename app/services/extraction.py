@@ -162,6 +162,7 @@ def extract_tables(image_bytes: bytes, original_filename: str, provider: str = "
 
 
 def extract_markdown(image_bytes: bytes, original_filename: str, provider: str = "claude") -> dict:
+    # SDK returns Markdown text directly when output_format=MARKDOWN (not JSON).
     md = _run_with_prerender(
         image_bytes,
         original_filename,
