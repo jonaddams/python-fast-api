@@ -5,6 +5,7 @@ from app.services.extraction import (
     extract_text_icr,
     extract_text_vlm,
     describe_image,
+    extract_tables,
     LocalVlmUnavailable,
 )
 
@@ -55,5 +56,19 @@ async def describe(
     try:
         data = await file.read()
         return describe_image(data, file.filename or "input", prompt=prompt, provider=provider)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tables")
+async def tables(
+    file: UploadFile = File(...),
+    provider: str = Query("claude", description="VLM provider: 'claude' or 'openai'."),
+):
+    try:
+        data = await file.read()
+        return extract_tables(data, file.filename or "input", provider=provider)
+    except LocalVlmUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -118,6 +118,49 @@ def describe_image(
     }
 
 
+def _format_tables(raw_json: str, filename: str, provider: str) -> dict:
+    parsed = json.loads(raw_json)
+    elements = parsed.get("elements", [])
+    tables = [e for e in elements if str(e.get("type", "")).lower() == "table"]
+    return {
+        "engine": "VLM_TABLES",
+        "filename": filename,
+        "provider": provider,
+        "tableCount": len(tables),
+        "tables": [
+            {
+                "rowCount": t.get("rowCount"),
+                "columnCount": t.get("columnCount"),
+                "cells": [
+                    {
+                        "row": c.get("row"),
+                        "column": c.get("column"),
+                        "rowSpan": c.get("rowSpan"),
+                        "colSpan": c.get("colSpan"),
+                        "text": c.get("text"),
+                        "confidence": round(c.get("confidence", 0), 2),
+                        "bounds": c.get("bounds"),
+                    }
+                    for c in t.get("cells", [])
+                ],
+            }
+            for t in tables
+        ],
+        "rawElements": elements,
+    }
+
+
+def extract_tables(image_bytes: bytes, original_filename: str, provider: str = "claude") -> dict:
+    raw = _run_with_prerender(
+        image_bytes,
+        original_filename,
+        "VLM",
+        provider=provider,
+        features=VisionFeatures.TABLE.value,
+    )
+    return _format_tables(raw, original_filename, provider)
+
+
 def _run_with_prerender(
     image_bytes: bytes,
     original_filename: str,
