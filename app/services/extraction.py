@@ -1,8 +1,16 @@
+import contextlib
 import json
 import tempfile
 import os
 
-from nutrient_sdk import Document, Vision, VisionEngine, VisionFeatures
+from nutrient_sdk import (
+    Document,
+    Vision,
+    VisionEngine,
+    VisionFeatures,
+    VisionOutputFormat,
+    DescriptionLevel,
+)
 
 
 class LocalVlmUnavailable(RuntimeError):
@@ -16,6 +24,37 @@ class LocalVlmUnavailable(RuntimeError):
 # The demo license does not include the `vision_form` entitlement.
 # `VisionFeatures.ALL` includes FORM by default, so we explicitly opt out.
 _LICENSED_VISION_FEATURES = VisionFeatures.ALL.value - VisionFeatures.FORM.value
+
+
+@contextlib.contextmanager
+def _prepared_input(image_bytes: bytes, original_filename: str):
+    """Write bytes to a temp file and yield a path safe for Vision.
+
+    PDFs are pre-rendered to a single PNG first. Image-only PDFs fail Vision's
+    InputImage stage, and once one Vision call fails the SDK enters a process-wide
+    bad state where every subsequent call fails identically. Pre-rendering avoids
+    triggering that path. Only the first page is rasterized. See
+    docs/sdk-feedback/bug-reports/.
+    """
+    is_pdf = image_bytes[:4] == b"%PDF"
+    with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
+        inp.write(image_bytes)
+        inp_path = inp.name
+
+    rendered_path: str | None = None
+    try:
+        if is_pdf:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as out:
+                rendered_path = out.name
+            with Document.open(inp_path) as doc:
+                doc.export_as_image(rendered_path)
+            yield rendered_path
+        else:
+            yield inp_path
+    finally:
+        os.unlink(inp_path)
+        if rendered_path and os.path.exists(rendered_path):
+            os.unlink(rendered_path)
 
 
 def extract_text_ocr(image_bytes: bytes, original_filename: str) -> dict:
@@ -36,17 +75,23 @@ def describe_image(
     *,
     prompt: str | None = None,
     provider: str = "claude",
+    level: str = "standard",
 ) -> dict:
-    """Run Vision.describe() with an optional custom prompt and provider choice."""
+    """Run Vision.describe() with an optional custom prompt, provider, and detail level."""
     from nutrient_sdk.vlmprovider import VlmProvider
 
-    with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
-        inp.write(image_bytes)
-        inp_path = inp.name
+    level_map = {
+        "standard": DescriptionLevel.STANDARD,
+        "detailed": DescriptionLevel.DETAILED,
+    }
+    level_key = level.lower()
+    if level_key not in level_map:
+        raise ValueError(f"Unsupported level: {level}")
 
-    try:
-        with Document.open(inp_path) as doc:
+    with _prepared_input(image_bytes, original_filename) as path:
+        with Document.open(path) as doc:
             s = doc.get_settings()
+            s.get_vision_descriptor_settings().set_level(level_map[level_key])
             if prompt:
                 s.get_vision_descriptor_settings().set_standard_prompt(prompt)
             p = provider.lower()
@@ -62,15 +107,34 @@ def describe_image(
             vision = Vision.set(doc)
             text = vision.describe()
 
-        return {
-            "engine": "VLM_DESCRIBE",
-            "filename": original_filename,
-            "provider": p,
-            "promptUsed": prompt or "(default)",
-            "text": text,
-        }
-    finally:
-        os.unlink(inp_path)
+    return {
+        "engine": "VLM_DESCRIBE",
+        "filename": original_filename,
+        "provider": p,
+        "level": level_key,
+        "promptUsed": prompt or "(default)",
+        "text": text,
+    }
+
+
+def _run_with_prerender(
+    image_bytes: bytes,
+    original_filename: str,
+    engine: str,
+    *,
+    provider: str | None = None,
+    features: int | None = None,
+    output_format: "VisionOutputFormat | None" = None,
+) -> str:
+    """Pre-render if needed, then run Vision and return the raw extract string."""
+    with _prepared_input(image_bytes, original_filename) as path:
+        return _run_vision(
+            path,
+            engine,
+            provider=provider,
+            features=features,
+            output_format=output_format,
+        )
 
 
 def _extract_with_engine(
@@ -80,36 +144,18 @@ def _extract_with_engine(
     *,
     provider: str | None = None,
 ) -> dict:
-    is_pdf = image_bytes[:4] == b"%PDF"
-
-    with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
-        inp.write(image_bytes)
-        inp_path = inp.name
-
-    rendered_path: str | None = None
-    try:
-        path_to_run = inp_path
-        if is_pdf:
-            # Always pre-render PDFs to PNG before running Vision. Image-only
-            # PDFs (scanned invoices, etc.) fail Vision's InputImage stage; once
-            # one fails, the SDK enters a bad state where subsequent Vision
-            # calls in the same process also fail with the same error.
-            # Pre-rendering avoids triggering the bad path entirely. Only the
-            # first page is rasterized.
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as out:
-                rendered_path = out.name
-            with Document.open(inp_path) as doc:
-                doc.export_as_image(rendered_path)
-            path_to_run = rendered_path
-        raw_json = _run_vision(path_to_run, engine, provider=provider)
-        return _format_extraction_result(raw_json, original_filename, engine)
-    finally:
-        os.unlink(inp_path)
-        if rendered_path and os.path.exists(rendered_path):
-            os.unlink(rendered_path)
+    raw_json = _run_with_prerender(image_bytes, original_filename, engine, provider=provider)
+    return _format_extraction_result(raw_json, original_filename, engine)
 
 
-def _run_vision(path: str, engine: str, *, provider: str | None = None) -> str:
+def _run_vision(
+    path: str,
+    engine: str,
+    *,
+    provider: str | None = None,
+    features: int | None = None,
+    output_format: "VisionOutputFormat | None" = None,
+) -> str:
     with Document.open(path) as doc:
         s = doc.get_settings()
         vs = s.get_vision_settings()
@@ -119,7 +165,9 @@ def _run_vision(path: str, engine: str, *, provider: str | None = None) -> str:
             "VLM": VisionEngine.VLM_ENHANCED_ICR,
         }
         vs.set_engine(engine_map[engine])
-        vs.set_features(_LICENSED_VISION_FEATURES)
+        vs.set_features(features if features is not None else _LICENSED_VISION_FEATURES)
+        if output_format is not None:
+            vs.set_output_format(output_format)
 
         if provider:
             from nutrient_sdk.vlmprovider import VlmProvider
