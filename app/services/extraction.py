@@ -161,6 +161,24 @@ def extract_tables(image_bytes: bytes, original_filename: str, provider: str = "
     return _format_tables(raw, original_filename, provider)
 
 
+def extract_markdown(image_bytes: bytes, original_filename: str, provider: str = "claude") -> dict:
+    md = _run_with_prerender(
+        image_bytes,
+        original_filename,
+        "VLM",
+        provider=provider,
+        features=VisionFeatures.TABLE.value,
+        output_format=VisionOutputFormat.MARKDOWN,
+    )
+    return {
+        "engine": "VLM_MARKDOWN",
+        "filename": original_filename,
+        "provider": provider,
+        "markdown": md,
+        "charCount": len(md),
+    }
+
+
 def _run_with_prerender(
     image_bytes: bytes,
     original_filename: str,

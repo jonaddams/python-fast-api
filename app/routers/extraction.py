@@ -6,6 +6,7 @@ from app.services.extraction import (
     extract_text_vlm,
     describe_image,
     extract_tables,
+    extract_markdown,
     LocalVlmUnavailable,
 )
 
@@ -68,6 +69,20 @@ async def tables(
     try:
         data = await file.read()
         return extract_tables(data, file.filename or "input", provider=provider)
+    except LocalVlmUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/markdown")
+async def markdown(
+    file: UploadFile = File(...),
+    provider: str = Query("claude", description="VLM provider: 'claude' or 'openai'."),
+):
+    try:
+        data = await file.read()
+        return extract_markdown(data, file.filename or "input", provider=provider)
     except LocalVlmUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
