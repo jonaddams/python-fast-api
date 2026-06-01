@@ -2,6 +2,7 @@ import contextlib
 import json
 import tempfile
 import os
+from collections.abc import Iterator
 
 from nutrient_sdk import (
     Document,
@@ -27,7 +28,7 @@ _LICENSED_VISION_FEATURES = VisionFeatures.ALL.value - VisionFeatures.FORM.value
 
 
 @contextlib.contextmanager
-def _prepared_input(image_bytes: bytes, original_filename: str):
+def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]:
     """Write bytes to a temp file and yield a path safe for Vision.
 
     PDFs are pre-rendered to a single PNG first. Image-only PDFs fail Vision's
@@ -124,7 +125,7 @@ def _run_with_prerender(
     *,
     provider: str | None = None,
     features: int | None = None,
-    output_format: "VisionOutputFormat | None" = None,
+    output_format: VisionOutputFormat | None = None,
 ) -> str:
     """Pre-render if needed, then run Vision and return the raw extract string."""
     with _prepared_input(image_bytes, original_filename) as path:
@@ -154,7 +155,7 @@ def _run_vision(
     *,
     provider: str | None = None,
     features: int | None = None,
-    output_format: "VisionOutputFormat | None" = None,
+    output_format: VisionOutputFormat | None = None,
 ) -> str:
     with Document.open(path) as doc:
         s = doc.get_settings()
