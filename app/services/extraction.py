@@ -138,7 +138,7 @@ def _format_tables(raw_json: str, filename: str, provider: str) -> dict:
                         "rowSpan": c.get("rowSpan"),
                         "colSpan": c.get("colSpan"),
                         "text": c.get("text"),
-                        "confidence": round(c.get("confidence", 0), 2),
+                        "confidence": round(c.get("confidence") or 0, 2),
                         "bounds": c.get("bounds"),
                     }
                     for c in t.get("cells", [])
