@@ -7,6 +7,8 @@ from app.services.extraction import (
     describe_image,
     extract_tables,
     extract_markdown,
+    extract_fields,
+    parse_field_names,
     LocalVlmUnavailable,
 )
 
@@ -83,6 +85,22 @@ async def markdown(
     try:
         data = await file.read()
         return extract_markdown(data, file.filename or "input", provider=provider)
+    except LocalVlmUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/fields")
+async def fields(
+    file: UploadFile = File(...),
+    fields: str = Form(..., description="Comma-separated list or JSON array of field names."),
+    provider: str = Query("claude", description="VLM provider: 'claude' or 'openai'."),
+):
+    try:
+        data = await file.read()
+        names = parse_field_names(fields)
+        return extract_fields(data, file.filename or "input", names, provider=provider)
     except LocalVlmUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:

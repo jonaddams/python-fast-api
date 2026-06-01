@@ -180,6 +180,105 @@ def extract_markdown(image_bytes: bytes, original_filename: str, provider: str =
     }
 
 
+def parse_field_names(raw: str) -> list[str]:
+    """Accept a comma-separated list or a JSON array of field names."""
+    raw = raw.strip()
+    if raw.startswith("["):
+        return [str(x).strip() for x in json.loads(raw) if str(x).strip()]
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _strip_code_fence(text: str) -> str:
+    """Remove a leading/trailing ```json ... ``` fence if the model added one."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return text
+
+
+def _extract_native_kv(elements: list[dict]) -> list[dict]:
+    """Pull elements the SDK tagged as key-value regions. Lenient: matches on
+    'key'/'value' appearing in the element type or role."""
+    regions = []
+    for e in elements:
+        marker = (str(e.get("type", "")) + " " + str(e.get("role", ""))).lower()
+        if "key" in marker or "value" in marker:
+            regions.append(
+                {
+                    "text": e.get("text"),
+                    "type": e.get("type"),
+                    "role": e.get("role"),
+                    "confidence": round(e.get("confidence") or 0, 2),
+                    "bounds": e.get("bounds"),
+                }
+            )
+    return regions
+
+
+def _extract_schema_fields(
+    image_bytes: bytes,
+    original_filename: str,
+    fields: list[str],
+    provider: str,
+) -> tuple[dict, str | None]:
+    """Schema-driven extraction via a custom describe() prompt. Returns
+    (parsed_fields, parse_error). On parse failure, parsed_fields is {} and
+    parse_error holds the raw model text."""
+    field_list = ", ".join(fields)
+    prompt = (
+        "Extract the following fields from this document and return ONLY a JSON "
+        f"object with these exact keys: {field_list}. Use null for any field you "
+        "cannot find. Do not include any text, explanation, or code fence outside "
+        "the JSON object."
+    )
+    result = describe_image(image_bytes, original_filename, prompt=prompt, provider=provider)
+    text = _strip_code_fence(result["text"])
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed, None
+        return {}, text
+    except (ValueError, json.JSONDecodeError):
+        return {}, text
+
+
+def extract_fields(
+    image_bytes: bytes,
+    original_filename: str,
+    fields: list[str],
+    provider: str = "claude",
+) -> dict:
+    raw = _run_with_prerender(
+        image_bytes,
+        original_filename,
+        "VLM",
+        provider=provider,
+        features=VisionFeatures.KEY_VALUE_REGION.value,
+    )
+    elements = json.loads(raw).get("elements", [])
+    native_regions = _extract_native_kv(elements)
+    schema_fields, parse_error = _extract_schema_fields(
+        image_bytes, original_filename, fields, provider
+    )
+    result = {
+        "engine": "VLM_FIELDS",
+        "filename": original_filename,
+        "provider": provider,
+        "requestedFields": fields,
+        "schemaFields": schema_fields,
+        "nativeRegions": native_regions,
+        "rawElements": elements,
+    }
+    if parse_error is not None:
+        result["parseError"] = parse_error
+    return result
+
+
 def _run_with_prerender(
     image_bytes: bytes,
     original_filename: str,
