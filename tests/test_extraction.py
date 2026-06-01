@@ -39,6 +39,21 @@ def test_vlm_endpoint_returns_503_when_local_vlm_unavailable(
     assert "localhost:1234" in body["detail"] or "VLM" in body["detail"]
 
 
+def test_ocr_endpoint_extracts_image_only_pdf(client: TestClient):
+    from pathlib import Path
+
+    pdf_path = Path(__file__).resolve().parent / "fixtures" / "ocr-invoice.pdf"
+    pdf_bytes = pdf_path.read_bytes()
+    response = client.post(
+        "/api/extraction/ocr",
+        files={"file": (pdf_path.name, pdf_bytes, "application/pdf")},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["engine"] == "OCR"
+    assert body["statistics"]["totalElements"] > 0
+
+
 def test_vlm_endpoint_with_claude_provider_returns_extraction(
     client: TestClient, sample_image_bytes: bytes, sample_image_name: str
 ):

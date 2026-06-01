@@ -80,49 +80,70 @@ def _extract_with_engine(
     *,
     provider: str | None = None,
 ) -> dict:
+    is_pdf = image_bytes[:4] == b"%PDF"
+
     with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
         inp.write(image_bytes)
         inp_path = inp.name
 
+    rendered_path: str | None = None
     try:
-        with Document.open(inp_path) as doc:
-            s = doc.get_settings()
-            vs = s.get_vision_settings()
-            engine_map = {
-                "OCR": VisionEngine.ADAPTIVE_OCR,
-                "ICR": VisionEngine.ICR,
-                "VLM": VisionEngine.VLM_ENHANCED_ICR,
-            }
-            vision_engine = engine_map[engine]
-            vs.set_engine(vision_engine)
-            vs.set_features(_LICENSED_VISION_FEATURES)
-
-            if provider:
-                from nutrient_sdk.vlmprovider import VlmProvider
-                p = provider.lower()
-                if p == "claude":
-                    vs.set_provider(VlmProvider.CLAUDE)
-                    s.get_claude_api_settings().set_api_key(os.environ["ANTHROPIC_API_KEY"])
-                elif p == "openai":
-                    vs.set_provider(VlmProvider.OPEN_AI)
-                    s.get_open_ai_api_endpoint_settings().set_api_key(os.environ["OPENAI_API_KEY"])
-                else:
-                    raise ValueError(f"Unsupported provider: {provider}")
-
-            vision = Vision.set(doc)
-            try:
-                raw_json = vision.extract_content()
-            except Exception as ex:
-                if "localhost:1234" in str(ex) or "Connection refused" in str(ex):
-                    raise LocalVlmUnavailable(
-                        "VLM_ENHANCED_ICR requires a local VLM server at localhost:1234 "
-                        "(LM Studio / Ollama) or a VLM provider configured via "
-                        "?provider=claude. Start the local server or set a provider and retry."
-                    ) from ex
-                raise
-            return _format_extraction_result(raw_json, original_filename, engine)
+        path_to_run = inp_path
+        if is_pdf:
+            # Always pre-render PDFs to PNG before running Vision. Image-only
+            # PDFs (scanned invoices, etc.) fail Vision's InputImage stage; once
+            # one fails, the SDK enters a bad state where subsequent Vision
+            # calls in the same process also fail with the same error.
+            # Pre-rendering avoids triggering the bad path entirely. Only the
+            # first page is rasterized.
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as out:
+                rendered_path = out.name
+            with Document.open(inp_path) as doc:
+                doc.export_as_image(rendered_path)
+            path_to_run = rendered_path
+        raw_json = _run_vision(path_to_run, engine, provider=provider)
+        return _format_extraction_result(raw_json, original_filename, engine)
     finally:
         os.unlink(inp_path)
+        if rendered_path and os.path.exists(rendered_path):
+            os.unlink(rendered_path)
+
+
+def _run_vision(path: str, engine: str, *, provider: str | None = None) -> str:
+    with Document.open(path) as doc:
+        s = doc.get_settings()
+        vs = s.get_vision_settings()
+        engine_map = {
+            "OCR": VisionEngine.ADAPTIVE_OCR,
+            "ICR": VisionEngine.ICR,
+            "VLM": VisionEngine.VLM_ENHANCED_ICR,
+        }
+        vs.set_engine(engine_map[engine])
+        vs.set_features(_LICENSED_VISION_FEATURES)
+
+        if provider:
+            from nutrient_sdk.vlmprovider import VlmProvider
+            p = provider.lower()
+            if p == "claude":
+                vs.set_provider(VlmProvider.CLAUDE)
+                s.get_claude_api_settings().set_api_key(os.environ["ANTHROPIC_API_KEY"])
+            elif p == "openai":
+                vs.set_provider(VlmProvider.OPEN_AI)
+                s.get_open_ai_api_endpoint_settings().set_api_key(os.environ["OPENAI_API_KEY"])
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
+
+        vision = Vision.set(doc)
+        try:
+            return vision.extract_content()
+        except Exception as ex:
+            if "localhost:1234" in str(ex) or "Connection refused" in str(ex):
+                raise LocalVlmUnavailable(
+                    "VLM_ENHANCED_ICR requires a local VLM server at localhost:1234 "
+                    "(LM Studio / Ollama) or a VLM provider configured via "
+                    "?provider=claude. Start the local server or set a provider and retry."
+                ) from ex
+            raise
 
 
 def _format_extraction_result(raw_json: str, filename: str, engine: str) -> dict:
