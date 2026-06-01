@@ -69,6 +69,19 @@ Each endpoint is a thin preset that calls this core with fixed arguments. This k
 each handler readable as a single purpose while avoiding duplication of the
 engine/feature/provider wiring.
 
+### VLM provider parity (Claude + OpenAI)
+
+All three new VLM endpoints (`tables`, `markdown`, `fields`) and the reused `describe`
+endpoint accept an optional `provider` parameter — `claude` (default) or `openai` —
+mirroring the existing `/api/extraction/vlm?provider=` plumbing. OpenAI keys/endpoint
+are wired via `get_open_ai_api_endpoint_settings().set_api_key(...)`, exactly as the
+existing `describe()` path already does. A valid `OPENAI_API_KEY` is being provisioned,
+so the OpenAI path is in scope for this work.
+
+This also unblocks the **pending OpenAI parity retest** previously stalled on an invalid
+key (Task 2 in `docs/superpowers/plans/2026-05-29-icr-followup-investigations.md`): once
+the key is in `.env`, re-run that comparison as part of validating the new endpoints.
+
 ## The four demos
 
 Each is a sibling page under `/python-sdk` in the companion repo, matching the existing
@@ -143,6 +156,9 @@ keyless CI.
 - `test_extraction_fields.py` — assert requested schema fields are present; assert the
   native-region path returns without error (lenient, since it may be weak).
 - Alt-text: extend the existing `describe` test to cover `level=DETAILED`.
+- **OpenAI parity**: add `provider=openai` cases (gated behind `OPENAI_API_KEY` with
+  `pytest.mark.skipif`) for at least `tables` and `fields`, asserting the OpenAI path
+  returns the same envelope shape as the Claude path.
 
 Fixtures: copy the chosen invoice, the usenix paper, and the chart image into
 `tests/fixtures/` (committed — they already ship in the public Next app, so they are
@@ -180,4 +196,4 @@ Frontend pages follow per-slice in the companion repo.
 - Frontend implementation (companion repo, paired follow-up).
 - `EQUATION` and `IMAGE_CLASSIFICATION` features (deferred; not in the chosen four).
 - A unified "extraction studio" UI (rejected in favor of four sibling pages).
-- Non-Claude VLM providers for the new demos (OpenAI path remains blocked on a valid key).
+- VLM providers beyond Claude and OpenAI (e.g. `CUSTOM`/local) for the new demos.
