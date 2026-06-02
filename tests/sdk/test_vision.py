@@ -49,16 +49,16 @@ class TestEdgeCases:
             with pytest.raises(nutrient_sdk.NutrientException):
                 Vision.set(doc).extract_content()
 
-    @defect("SDK-028", "extraction.py strips FORM assuming unlicensed, but vision_form IS licensed in 1.0.6")
     def test_form_feature_is_licensed(self, ocr_png):
-        # If vision_form is licensed, requesting FORM must NOT raise FeatureUnLicensed.
-        # xfail asserts the stale opt-out is unnecessary; flips when re-validated.
+        # vision_form IS licensed on this key, so requesting FORM must succeed.
+        # (app/services/extraction.py still strips FORM as if unlicensed — a stale
+        # opt-out to clean up; see DEFECTS.md SDK-028 note. NOT an SDK defect.)
         with Document.open(ocr_png) as doc:
             vs = doc.get_settings().get_vision_settings()
             vs.set_engine(VisionEngine.ADAPTIVE_OCR)
             vs.set_features(VisionFeatures.FORM.value)
-            with pytest.raises(nutrient_sdk.FeatureUnLicensedException):
-                Vision.set(doc).extract_content()
+            elements = json.loads(Vision.set(doc).extract_content())["elements"]
+            assert len(elements) > 0
 
 
 class TestSequential:

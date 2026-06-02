@@ -41,33 +41,37 @@ class TestEdgeCases:
     @defect("SDK-002", "empty .docx surfaces as InitializationError(1006), not ConversionError")
     def test_empty_office_file_is_typed(self):
         path = inputs.empty_file(".docx")
+        out = tempfile.mktemp(suffix=".pdf")
         try:
             with pytest.raises(nutrient_sdk.NutrientException) as ei:
                 with Document.open(path) as doc:
-                    doc.export_as_pdf(tempfile.mktemp(suffix=".pdf"))
+                    doc.export_as_pdf(out)
             assert not isinstance(ei.value, nutrient_sdk.InitializationError)
         finally:
-            inputs.cleanup(path)
+            inputs.cleanup(path, out)
 
     @defect("SDK-032", "negative conversion timeout accepted without validation")
     def test_negative_timeout_rejected(self):
         src = _write(".md", b"# x\n")
+        out = tempfile.mktemp(suffix=".pdf")
         try:
             s = DocumentSettings()
             s.conversion_settings.set_timeout_milliseconds(-1)
             with pytest.raises(nutrient_sdk.NutrientException):
                 with Document.open(src, s) as doc:
-                    doc.export_as_pdf(tempfile.mktemp(suffix=".pdf"))
+                    doc.export_as_pdf(out)
         finally:
-            inputs.cleanup(src)
+            inputs.cleanup(src, out)
 
     def test_unsupported_conversion_is_typed(self, ocr_png):
         # Raster image -> spreadsheet has no tabular source; expect a typed error.
         out = tempfile.mktemp(suffix=".xlsx")
-        with pytest.raises(nutrient_sdk.NutrientException):
-            with Document.open(ocr_png) as doc:
-                doc.export_as_spreadsheet(out)
-        inputs.cleanup(out)
+        try:
+            with pytest.raises(nutrient_sdk.NutrientException):
+                with Document.open(ocr_png) as doc:
+                    doc.export_as_spreadsheet(out)
+        finally:
+            inputs.cleanup(out)
 
 
 class TestSequential:

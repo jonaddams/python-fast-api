@@ -46,7 +46,6 @@ tests/sdk/
 ├── test_smoke.py        # Fork-safety spike (gate test — must pass first)
 ├── _support/
 │   ├── inputs.py        # Malformed/edge-case input generators
-│   ├── assertions.py    # SDK error-type helpers
 │   └── markers.py       # defect() xfail wrapper
 └── README.md            # This file
 ```

@@ -7,8 +7,9 @@ and correctly configured.
 import json
 from pathlib import Path
 
-import pytest
 from nutrient_sdk import Document, Vision, VisionEngine, VisionFeatures
+
+from tests.sdk._support.markers import defect
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 GOOD_PNG = FIXTURES / "input_ocr_multiple_languages.png"
@@ -30,8 +31,8 @@ def test_smoke_ocr_on_png_succeeds():
     assert len(elements) > 0
 
 
+@defect("SDK-026", "image-only-PDF Vision fails; exercised here to prove --forked isolation contains it")
 def test_fork_isolation_contains_vision_corruption():
-    # This test triggers the known image-only-PDF Vision defect. Under --forked
-    # it dies in its own child and CANNOT poison test_smoke_ocr_on_png_succeeds.
-    with pytest.raises(Exception):
-        _ocr(SCANNED_PDF)
+    # Triggers the known image-only-PDF Vision defect. Under --forked it dies in
+    # its own child and cannot poison test_smoke_ocr_on_png_succeeds.
+    _ocr(SCANNED_PDF)

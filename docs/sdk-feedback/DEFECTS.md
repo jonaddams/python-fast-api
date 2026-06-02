@@ -3,12 +3,15 @@
 Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 `filed` (JIRA ticket exists, link it), `fixed` (SDK corrected — remove the xfail).
 
-**Summary:** 36 candidate defects catalogued (SDK-001 through SDK-036). 31 are confirmed by
-automated xfail tests in `tests/sdk/`; 5 are documented-only (SDK-005, SDK-012, SDK-019,
-SDK-033, SDK-036). The suite is run via `make test-sdk` (`pytest tests/sdk/ --forked -v -rxX`) and
-currently tallies **39 passed / 39 xfailed / 0 failed / 0 xpassed**. The `--forked` flag is
-required because SDK-003 (process-wide state corruption) and the SDK-034/035 macOS fork-safety
-class make sequential runs in a single process unreliable.
+**Summary:** 35 SDK defects catalogued (SDK-001 through SDK-036, excluding SDK-028 which was
+reclassified as a code-cleanup). 30 are confirmed by automated xfail tests in `tests/sdk/`; 5
+are documented-only (SDK-005, SDK-012, SDK-019, SDK-033, SDK-036). SDK-028 is reclassified as
+`code-cleanup (not SDK)` — `app/services/extraction.py` strips `VisionFeatures.FORM` assuming
+unlicensed, but `vision_form` is licensed; the fix is to drop the FORM opt-out in extraction.py.
+The suite is run via `make test-sdk` (`pytest tests/sdk/ --forked -v -rxX`) and currently tallies
+**39 passed / 39 xfailed / 0 failed / 0 xpassed**. The `--forked` flag is required because
+SDK-003 (process-wide state corruption) and the SDK-034/035 macOS fork-safety class make
+sequential runs in a single process unreliable.
 
 | ID | Area | Symptom | Severity | Status | Test |
 |----|------|---------|----------|--------|------|
@@ -39,7 +42,7 @@ class make sequential runs in a single process unreliable.
 | SDK-025 | Redaction | APPLY_REDACTIONS footgun: default `NONE` leaves underlying content recoverable | high | open | test_redaction.py::test_default_save_burns_in_content |
 | SDK-026 | Vision | Image-only/scanned PDF fails at `InputImage` stage with truncated message | high | filed | test_vision.py::test_scanned_pdf_extracts_or_raises_clean |
 | SDK-027 | Vision | Out-of-range/undefined `VisionFeatures` bitmask (e.g. `set_features(999)`) is silently accepted, not rejected with `InvalidSettingsException`/`InvalidArgumentException` | med | open | test_vision.py::test_bad_features_bitmask_rejected |
-| SDK-028 | Vision | `extraction.py` strips `VisionFeatures.FORM` assuming unlicensed, but `vision_form` is now licensed in 1.0.6 (stale) | low | open | test_vision.py::test_form_feature_is_licensed |
+| SDK-028 | Code-cleanup (not SDK) | NOT an SDK defect — `app/services/extraction.py` strips `VisionFeatures.FORM` assuming unlicensed, but `vision_form` IS licensed in 1.0.6. Verified FORM works (test_form_feature_is_licensed, passing). Cleanup: drop the FORM opt-out in extraction.py. | low | code-cleanup | test_vision.py::test_form_feature_is_licensed (passing regression guard) |
 | SDK-029 | Exporters | Orphaned `*Settings`: no Python API attaches settings to any exporter | high | open | test_exporters.py::test_exporter_accepts_settings |
 | SDK-030 | Exporters | `ImageExportFormat` exposes only `TIFF` despite docstring claiming PNG/JPEG/TIFF/BMP | med | open | test_exporters.py::test_image_export_formats_available |
 | SDK-031 | Exporters | `export()` doesn't guard a closed exporter — raises opaque `InitializationError(1006)` instead of a clean `ValueError` (confirmed; no native crash on macOS 1.0.6 but wrong exception type) | med | open | test_exporters.py::test_export_with_closed_exporter_is_typed |
@@ -60,3 +63,4 @@ spawn a subprocess instead. Other operations survive fork.
 - **confirmed** — an xfail test exists; the suite asserts the defect is present every run.
 - **documented-only** — no dedicated test; defect observed and recorded but not automated.
   These five lack coverage: SDK-005, SDK-012, SDK-019, SDK-033, SDK-036.
+- **code-cleanup** — reclassified as an app-code issue, not an SDK defect (SDK-028).
