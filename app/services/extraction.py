@@ -184,7 +184,11 @@ def parse_field_names(raw: str) -> list[str]:
     """Accept a comma-separated list or a JSON array of field names."""
     raw = raw.strip()
     if raw.startswith("["):
-        return [str(x).strip() for x in json.loads(raw) if str(x).strip()]
+        try:
+            arr = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"fields looks like a JSON array but is not valid JSON: {e}") from e
+        return [str(x).strip() for x in arr if str(x).strip()]
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
@@ -229,6 +233,8 @@ def _extract_schema_fields(
     """Schema-driven extraction via a custom describe() prompt. Returns
     (parsed_fields, parse_error). On parse failure, parsed_fields is {} and
     parse_error holds the raw model text."""
+    # Field names are interpolated directly into the prompt; sanitize caller
+    # input before exposing this beyond trusted/demo use.
     field_list = ", ".join(fields)
     prompt = (
         "Extract the following fields from this document and return ONLY a JSON "
@@ -253,6 +259,8 @@ def extract_fields(
     fields: list[str],
     provider: str = "claude",
 ) -> dict:
+    # Two sequential VLM calls by design: native KEY_VALUE_REGION extraction
+    # plus a schema-driven describe() pass. Both use the same provider.
     raw = _run_with_prerender(
         image_bytes,
         original_filename,

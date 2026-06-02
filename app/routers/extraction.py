@@ -98,8 +98,13 @@ async def fields(
     provider: str = Query("claude", description="VLM provider: 'claude' or 'openai'."),
 ):
     try:
-        data = await file.read()
         names = parse_field_names(fields)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not names:
+        raise HTTPException(status_code=422, detail="fields must contain at least one field name")
+    try:
+        data = await file.read()
         return extract_fields(data, file.filename or "input", names, provider=provider)
     except LocalVlmUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))

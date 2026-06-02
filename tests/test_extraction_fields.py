@@ -32,3 +32,21 @@ def test_fields_endpoint_accepts_json_array_fields(client: TestClient, invoice_p
     )
     assert response.status_code == 200, response.text
     assert response.json()["requestedFields"] == ["invoice_number", "total"]
+
+
+def test_fields_endpoint_rejects_empty_fields(client: TestClient, invoice_pdf_bytes: bytes):
+    response = client.post(
+        "/api/extraction/fields",
+        files={"file": ("ocr-invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+        data={"fields": ""},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_fields_endpoint_rejects_malformed_json_array(client: TestClient, invoice_pdf_bytes: bytes):
+    response = client.post(
+        "/api/extraction/fields",
+        files={"file": ("ocr-invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+        data={"fields": "[invoice_number, total]"},  # unquoted -> invalid JSON
+    )
+    assert response.status_code == 422, response.text
