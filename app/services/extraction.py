@@ -168,7 +168,6 @@ def extract_markdown(image_bytes: bytes, original_filename: str, provider: str =
         original_filename,
         "VLM",
         provider=provider,
-        features=VisionFeatures.TABLE.value,
         output_format=VisionOutputFormat.MARKDOWN,
     )
     return {

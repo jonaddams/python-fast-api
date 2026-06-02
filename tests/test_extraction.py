@@ -69,6 +69,7 @@ def test_vlm_endpoint_with_claude_provider_returns_extraction(
     assert len(body["fullText"]) > 0
 
 
+@requires_anthropic
 def test_describe_endpoint_returns_text(client: TestClient, sample_image_bytes: bytes, sample_image_name: str):
     response = client.post(
         "/api/extraction/describe",
