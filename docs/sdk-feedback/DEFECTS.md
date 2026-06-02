@@ -38,3 +38,4 @@ Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 | SDK-031 | Exporters | `export()` doesn't guard a closed exporter — NULL handle → native crash | med | open |
 | SDK-032 | Conversion | `ConversionSettings.set_timeout_milliseconds(-1)` accepted unvalidated | low | open |
 | SDK-033 | Conversion/Exporters | `PresentationSettings` has zero properties (PDF→PPTX tuning incomplete) | low | open |
+| SDK-034 | Signing | `signer.sign()` crashes with SIGABRT when called in a forked process whose parent has already called `License.register_key()` (fork-unsafe native state) | high | open |
