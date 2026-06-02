@@ -55,10 +55,11 @@ async def describe(
     file: UploadFile = File(...),
     prompt: str | None = Form(None),
     provider: str = Form("claude"),
+    level: str = Form("standard", description="Description level: 'standard' or 'detailed'."),
 ):
     try:
         data = await file.read()
-        return describe_image(data, file.filename or "input", prompt=prompt, provider=provider)
+        return describe_image(data, file.filename or "input", prompt=prompt, provider=provider, level=level)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
