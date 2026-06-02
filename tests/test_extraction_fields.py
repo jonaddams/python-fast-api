@@ -64,4 +64,5 @@ def test_fields_endpoint_openai_provider_returns_same_shape(client: TestClient, 
     body = response.json()
     assert body["engine"] == "VLM_FIELDS"
     assert body["provider"] == "openai"
+    assert body["requestedFields"] == ["invoice_number", "total"]
     assert isinstance(body["nativeRegions"], list)

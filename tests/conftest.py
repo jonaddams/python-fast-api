@@ -47,6 +47,6 @@ def skip_if_openai_unavailable(response) -> None:
     if response.status_code in (500, 503):
         detail = response.text.lower()
         signals = ("vlm endpoint", "properly configured", "401", "unauthorized",
-                   "api key", "api_key", "openai")
+                   "api key", "api_key", "api.openai.com")
         if any(s in detail for s in signals):
             pytest.skip(f"OpenAI path unavailable (refresh OPENAI_API_KEY): {response.text}")
