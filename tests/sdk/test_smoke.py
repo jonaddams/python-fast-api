@@ -7,6 +7,7 @@ and correctly configured.
 import json
 from pathlib import Path
 
+import pytest
 from nutrient_sdk import Document, Vision, VisionEngine, VisionFeatures
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -32,6 +33,5 @@ def test_smoke_ocr_on_png_succeeds():
 def test_fork_isolation_contains_vision_corruption():
     # This test triggers the known image-only-PDF Vision defect. Under --forked
     # it dies in its own child and CANNOT poison test_smoke_ocr_on_png_succeeds.
-    import pytest
     with pytest.raises(Exception):
         _ocr(SCANNED_PDF)

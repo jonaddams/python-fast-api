@@ -1,5 +1,6 @@
 """Generators for malformed / edge-case inputs, written to temp files."""
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -33,7 +34,10 @@ def png_renamed_pdf(fixtures_dir: Path) -> str:
 
 
 def unicode_named_copy(fixtures_dir: Path) -> str:
-    """A real PDF copied to a path with a unicode + spaces filename."""
+    """A real PDF copied to a path with a unicode + spaces filename.
+
+    Caller should `cleanup(os.path.dirname(returned_path))` to remove the temp dir.
+    """
     data = (fixtures_dir / "account-registration-form.pdf").read_bytes()
     d = tempfile.mkdtemp()
     path = os.path.join(d, "ünïcödé 文件 name.pdf")
@@ -44,6 +48,9 @@ def unicode_named_copy(fixtures_dir: Path) -> str:
 def cleanup(*paths: str) -> None:
     for p in paths:
         try:
-            os.unlink(p)
+            if os.path.isdir(p):
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                os.unlink(p)
         except OSError:
             pass

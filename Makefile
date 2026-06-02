@@ -16,7 +16,7 @@ help:
 	@echo "  make install    Sync the editable install with pyproject.toml"
 
 test:
-	$(PYTEST) tests/ -v
+	$(PYTEST) tests/ --ignore=tests/sdk -v
 
 test-sdk:  ## Run the SDK defect-hunting suite (process-isolated)
 	$(PYTEST) tests/sdk/ --forked -v -rxX
