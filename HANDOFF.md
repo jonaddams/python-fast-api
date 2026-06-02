@@ -47,13 +47,15 @@ The Python SDK section of the frontend has these demo pages, all powered by this
 | `/python-sdk/icr-extraction` | `POST /api/extraction/icr` | ICR on the Nutrient guide's multi-language image and on a hand-printed employment app |
 | `/python-sdk/vlm-extraction` | `POST /api/extraction/vlm?provider=claude` | VLM-enhanced ICR live against Claude on an invoice |
 | `/python-sdk/vlm-transcription` | `POST /api/extraction/describe` | Custom-prompt transcription via `Vision.describe()` (`level=standard\|detailed`) |
-| `/python-sdk/table-extraction` | `POST /api/extraction/tables?provider=claude` | Structured table extraction — returns per-cell row/column/span/confidence |
-| `/python-sdk/markdown-extraction` | `POST /api/extraction/markdown?provider=claude` | Document → clean Markdown for RAG/LLM ingestion |
-| `/python-sdk/field-extraction` | `POST /api/extraction/fields?provider=claude` | Key-value extraction: native `KEY_VALUE_REGION` regions + schema-driven JSON via `Vision.describe()` |
+| `/python-sdk/table-extraction *(frontend pending)*` | `POST /api/extraction/tables?provider=claude` | Structured table extraction — returns per-cell row/column/span/confidence |
+| `/python-sdk/markdown-extraction *(frontend pending)*` | `POST /api/extraction/markdown?provider=claude` | Document → clean Markdown for RAG/LLM ingestion |
+| `/python-sdk/field-extraction *(frontend pending)*` | `POST /api/extraction/fields?provider=claude` | Key-value extraction: native `KEY_VALUE_REGION` regions + schema-driven JSON via `Vision.describe()` |
 | `/python-sdk/form-detection` | `POST /api/forms/detect` | Form-field detection on IRS F940 with a confidence slider |
 | `/python-sdk/form-fill` | `POST /api/forms/list-fields` + `POST /api/forms/fill-fields` | (existed before this session) |
 | `/python-sdk/digital-signature` | `POST /api/signing/sign-demo` | (existed before this session) |
 | `/python-sdk/redaction`, `word-template`, `office-to-pdf`, `md-to-pdf`, `pdf-to-html`, `pdf-to-office` | various | (existed before this session) |
+
+> **Note:** rows marked *(frontend pending)* have working backend endpoints but no frontend page yet — those pages are the next planned slice in the companion `nutrient-sdk-samples` repo.
 
 ---
 
