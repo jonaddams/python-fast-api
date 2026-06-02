@@ -7,7 +7,7 @@ Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 |----|------|---------|----------|--------|
 | SDK-001 | Document | `Document.open(None)` / `open(bytes)` raises bare Python `TypeError`, not a typed `NutrientArgumentNullException` | med | open |
 | SDK-002 | Document/Conversion/Editor/Forms | Corrupt/empty/wrong-magic file surfaces as `InitializationError('Arg_NullReferenceException', 1006)` instead of `DocumentError` | high | open |
-| SDK-003 | Document/Vision/Exporters | Process-wide native state corruption: one failed call poisons all later calls in the process (reproduced for Vision calls; NOT reproduced at Document.open level) | critical | filed |
+| SDK-003 | Document/Vision/Exporters | Process-wide native state corruption: one failed call poisons all later calls in the process (reproduced for Vision calls AND exporter export() with bad path — subsequent Document.open raises IOError with the stale bad path; NOT reproduced at Document.open level) | critical | filed |
 | SDK-004 | Document/Conversion/Signing/Exporters | Use-after-close raises bare Python `ValueError`, not typed `InvalidStateException` | med | open |
 | SDK-005 | Document | `export_as_image` ignores file extension for format selection | low | open |
 | SDK-006 | Document | `export_as_image(None)` raises `InitializationError(EmptyString,1002)` not a null-arg exception | low | open |
@@ -35,7 +35,7 @@ Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 | SDK-028 | Vision | `extraction.py` strips `VisionFeatures.FORM` assuming unlicensed, but `vision_form` is now licensed in 1.0.6 (stale) | low | open |
 | SDK-029 | Exporters | Orphaned `*Settings`: no Python API attaches settings to any exporter | high | open |
 | SDK-030 | Exporters | `ImageExportFormat` exposes only `TIFF` despite docstring claiming PNG/JPEG/TIFF/BMP | med | open |
-| SDK-031 | Exporters | `export()` doesn't guard a closed exporter — NULL handle → native crash | med | open |
+| SDK-031 | Exporters | `export()` doesn't guard a closed exporter — raises opaque `InitializationError(1006)` instead of a clean `ValueError` (confirmed; no native crash on macOS 1.0.6 but wrong exception type) | med | open |
 | SDK-032 | Conversion | `ConversionSettings.set_timeout_milliseconds(-1)` accepted unvalidated | low | open |
 | SDK-033 | Conversion/Exporters | `PresentationSettings` has zero properties (PDF→PPTX tuning incomplete) | low | open |
 | SDK-034 | Signing | macOS fork-safety: once nutrient_sdk is loaded in a process, calling sign() in a fork()ed child aborts (SIGABRT, Security.framework/objc). Other SDK ops survive fork; only signing is affected. Use a spawned subprocess to sign. | med | open |
