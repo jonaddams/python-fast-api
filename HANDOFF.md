@@ -23,7 +23,7 @@ Two repos, paired:
 
 ```bash
 make dev        # uvicorn :8080 with --reload
-make test       # 12 tests, ~70s (the SDK is heavy)
+make test       # ~19 passing, 2 skipped, ~3–4 min (many tests make live VLM/Claude calls)
 make install    # re-sync editable install
 ```
 
@@ -46,11 +46,16 @@ The Python SDK section of the frontend has these demo pages, all powered by this
 | `/python-sdk/ocr-extraction` | `POST /api/extraction/ocr` | Adaptive OCR on a scanned invoice PDF and on the Nutrient guide's multi-language image |
 | `/python-sdk/icr-extraction` | `POST /api/extraction/icr` | ICR on the Nutrient guide's multi-language image and on a hand-printed employment app |
 | `/python-sdk/vlm-extraction` | `POST /api/extraction/vlm?provider=claude` | VLM-enhanced ICR live against Claude on an invoice |
-| `/python-sdk/vlm-transcription` | `POST /api/extraction/describe` | Custom-prompt transcription via `Vision.describe()` |
+| `/python-sdk/vlm-transcription` | `POST /api/extraction/describe` | Custom-prompt transcription via `Vision.describe()` (`level=standard\|detailed`) |
+| `/python-sdk/table-extraction *(frontend pending)*` | `POST /api/extraction/tables?provider=claude` | Structured table extraction — returns per-cell row/column/span/confidence |
+| `/python-sdk/markdown-extraction *(frontend pending)*` | `POST /api/extraction/markdown?provider=claude` | Document → clean Markdown for RAG/LLM ingestion |
+| `/python-sdk/field-extraction *(frontend pending)*` | `POST /api/extraction/fields?provider=claude` | Key-value extraction: native `KEY_VALUE_REGION` regions + schema-driven JSON via `Vision.describe()` |
 | `/python-sdk/form-detection` | `POST /api/forms/detect` | Form-field detection on IRS F940 with a confidence slider |
 | `/python-sdk/form-fill` | `POST /api/forms/list-fields` + `POST /api/forms/fill-fields` | (existed before this session) |
 | `/python-sdk/digital-signature` | `POST /api/signing/sign-demo` | (existed before this session) |
 | `/python-sdk/redaction`, `word-template`, `office-to-pdf`, `md-to-pdf`, `pdf-to-html`, `pdf-to-office` | various | (existed before this session) |
+
+> **Note:** rows marked *(frontend pending)* have working backend endpoints but no frontend page yet — those pages are the next planned slice in the companion `nutrient-sdk-samples` repo.
 
 ---
 
@@ -82,8 +87,8 @@ PRs from this session (all merged): python-fast-api #1–#11, nutrient-sdk-sampl
 | `app/services/extraction.py` | All Vision API wrappers. Includes the **PDF pre-render workaround** (lines 86–101) — see Known Bugs below. |
 | `app/services/forms.py` | Form list/fill/detect. The `detect_fields()` function accepts an optional `confidence_threshold`. |
 | `app/services/signing.py` | Uses the new `Signature` API (post-1.0.6 rename from `PdfSigner`). |
-| `app/routers/extraction.py` | `/ocr`, `/icr`, `/vlm` (with `?provider=`), `/describe` (with `prompt` and `provider` form fields). |
-| `tests/test_extraction.py` | 5 tests covering all extraction paths including the image-only-PDF regression. |
+| `app/routers/extraction.py` | `/ocr`, `/icr`, `/vlm` (with `?provider=`), `/describe` (with `prompt`, `provider`, `level`), `/tables`, `/markdown`, `/fields`. |
+| `tests/test_extraction.py` | Tests covering all extraction paths including the image-only-PDF regression, new VLM endpoints, and OpenAI parity (skipped when key absent). |
 | `tests/test_forms_detect.py` | Confidence threshold sweep tests. |
 | `Makefile` | `make test`, `make dev`, `make install`. |
 | `pyproject.toml` | SDK pins + `addopts = "-p no:faulthandler"` (don't remove without re-validating; the SDK uses SIGSEGV internally). |
@@ -119,6 +124,7 @@ PRs from this session (all merged): python-fast-api #1–#11, nutrient-sdk-sampl
 5. **ICR confidence scores are uncorrelated with output quality.** Don't build threshold-based auto-accept logic on ICR confidence.
 6. **The form-detection engine returns generic `PdfFormField` instances, not subtypes.** No way to distinguish detected text fields from detected checkboxes from the output alone.
 7. **The PDF pre-render workaround only handles the first page** (`Document.export_as_image()` writes one image). Multi-page scanned PDFs lose pages 2+. Acceptable for the current demo; a real fix needs page iteration.
+8. **`VisionFeatures.KEY_VALUE_REGION` appears to be a no-op on tested documents.** Running it on `ocr-invoice.pdf` via Claude returned 20 elements, but none were tagged as key/value regions — `nativeRegions` came back `[]`. The feature is licensed (shows in the SDK banner) but produces no key-value-tagged elements. This is why `/api/extraction/fields` pairs it with a schema-driven `describe()` prompt, which does return the requested fields cleanly. Consistent with the pattern of other no-op Vision features already documented in the engine-quality doc. Candidate for a separate SDK-feedback filing.
 
 ---
 
@@ -127,7 +133,7 @@ PRs from this session (all merged): python-fast-api #1–#11, nutrient-sdk-sampl
 | Item | Status |
 |---|---|
 | **File the two JIRA tickets** | Bug reports ready at `docs/sdk-feedback/bug-reports/`. User said they'd file. |
-| **OpenAI parity retest** (Task 2 from the followup plan) | Blocked: current `OPENAI_API_KEY` in `.env` returns HTTP 401. User needs to regenerate. Once done, rerun the test in `docs/superpowers/plans/2026-05-29-icr-followup-investigations.md` Task 2 Step 2. |
+| **OpenAI provider parity tests** (tables, fields, markdown) | Gated parity tests exist in `tests/test_extraction.py` and currently SKIP because the `OPENAI_API_KEY` in `.env` is invalid (returns "VLM endpoint ... properly configured" SDK error). Once a valid key is in `.env`, the tests will run automatically and verify response-shape parity. The helper `skip_if_openai_unavailable` keeps the suite green until then. |
 | **Manager review of the comparison HTML** | The stakeholder review of `docs/sdk-feedback/claude-vs-icr-comparison/index.html` — outcome unknown. |
 | **(Maybe) refresh `tests/fixtures/`** with newer sample images | The Reddit-corpus images in `recipes/` are not committed because they're not redistributable. If someone needs to rerun the ICR investigation locally, the corpus needs to be re-fetched manually. |
 
@@ -147,7 +153,7 @@ PRs from this session (all merged): python-fast-api #1–#11, nutrient-sdk-sampl
 
 If picking up cold:
 
-1. `cd /Users/jonaddamsnutrient/SE/code/python-fast-api && make test` — confirm baseline (should be 12 passing in ~70s).
+1. `cd /Users/jonaddamsnutrient/SE/code/python-fast-api && make test` — confirm baseline (should be ~19 passing, 2 skipped in ~3–4 min; skips are OpenAI parity tests blocked on invalid key).
 2. Read `docs/sdk-feedback/bug-reports/README.md` — the two open SDK bugs are the most important context.
 3. Skim `docs/sdk-feedback/2026-05-28-icr-engine-quality.md` to refresh on the ICR/VLM story.
 4. `git log --oneline -20` — recent PR history is informative.

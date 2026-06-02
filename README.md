@@ -36,7 +36,7 @@ cp .env.example .env
 
 ```bash
 make dev        # uvicorn with --reload on port 8080
-make test       # full pytest suite (~12s)
+make test       # full pytest suite, ~3–4 min (many tests make live VLM/Claude calls; tests for absent keys are skipped)
 make install    # re-sync the editable install with pyproject.toml
 make help       # list targets
 ```
@@ -72,7 +72,11 @@ Routers live under `app/routers/`. Each delegates to a service in `app/services/
 | `signing` | `POST /api/signing/sign` | Digital signature with user-supplied cert |
 | `extraction` | `POST /api/extraction/ocr` | OCR text extraction |
 | `extraction` | `POST /api/extraction/icr` | ICR (handwriting) extraction |
-| `extraction` | `POST /api/extraction/vlm` | VLM-enhanced ICR (requires local LM Studio at `localhost:1234`) |
+| `extraction` | `POST /api/extraction/vlm` | VLM-enhanced ICR (`?provider=claude\|openai`; falls back to localhost:1234 when unset) |
+| `extraction` | `POST /api/extraction/describe` | Custom-prompt transcription / alt-text (`level=standard\|detailed`) |
+| `extraction` | `POST /api/extraction/tables` | Structured table extraction (VLM + Claude/OpenAI) |
+| `extraction` | `POST /api/extraction/markdown` | Document → clean Markdown for RAG/LLM ingestion |
+| `extraction` | `POST /api/extraction/fields` | Key-value extraction: native regions + schema-driven JSON |
 | `templates` | `POST /api/templates/...` | Word template generation |
 | `redaction` | `POST /api/redaction/...` | Permanent content redaction |
 
