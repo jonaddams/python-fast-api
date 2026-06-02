@@ -6,6 +6,45 @@ This document is the entry point for any future session picking up work on this 
 
 ---
 
+## SDK defect-hunting test suite
+
+Branch `sdk-defect-hunting-tests` (merged or rebased from `extraction-demos-spec`) adds a
+comprehensive defect-hunting suite at `tests/sdk/`. Run it with:
+
+```bash
+make test-sdk   # = .venv/bin/pytest tests/sdk/ --forked -v -rxX
+```
+
+**Result: 39 passed / 39 xfailed / 0 failed / 0 xpassed** (~34s on Apple M4).
+
+Key facts for whoever picks this up:
+
+- **Registry:** `docs/sdk-feedback/DEFECTS.md` — 35 catalogued defects (SDK-001..SDK-035).
+  31 confirmed by automated xfail tests; 4 documented-only (SDK-005, SDK-012, SDK-019, SDK-033).
+- **`--forked` is required.** SDK-003 (process-wide native state corruption after a failed
+  Vision call or exporter call) and the SDK-034/035 macOS fork-safety class make it unsafe
+  to run these tests sequentially in a single process. `pytest-forked` gives each test its
+  own process. Remove `--forked` only if you fully understand the corruption risk.
+- **Fork-safety (SDK-034/035):** Once `nutrient_sdk` is loaded, calling `sign()` or
+  `Vision.describe()` in a `fork()`ed child aborts (SIGABRT/SIGSEGV) on macOS due to
+  Security.framework and VLM-path fork hostility. The workaround is `subprocess.run()` in a
+  freshly spawned interpreter; see `tests/sdk/test_signing.py::_run_in_subprocess`.
+- **Bug report stubs:** 6 new JIRA-ready files under `docs/sdk-feedback/bug-reports/` for
+  the confirmed high-severity defects: SDK-002, SDK-007, SDK-011, SDK-017, SDK-025, SDK-029.
+  The two critical reports (SDK-003, SDK-026) were filed previously.
+
+### Shipped-code bugs found by the suite (NOT SDK defects — need separate fixing)
+
+These are bugs in **this repo's** application code uncovered during the defect hunt:
+
+1. **`app/services/redaction.py` line ~24: `pages.get_item()` does not exist.**
+   The correct call is `pages.get_page(n)` (1-based index). The redaction endpoint
+   (`POST /api/redaction/redact`) is broken and will 500 on any request. No existing
+   integration test covers this endpoint. Fix: replace `pages.get_item(page_num)` with
+   `pages.get_page(page_num)` (and verify the page number is 1-based, not 0-based).
+
+---
+
 ## Project at a glance
 
 Two repos, paired:
