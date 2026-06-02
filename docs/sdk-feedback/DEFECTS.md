@@ -39,3 +39,4 @@ Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 | SDK-032 | Conversion | `ConversionSettings.set_timeout_milliseconds(-1)` accepted unvalidated | low | open |
 | SDK-033 | Conversion/Exporters | `PresentationSettings` has zero properties (PDF→PPTX tuning incomplete) | low | open |
 | SDK-034 | Signing | macOS fork-safety: once nutrient_sdk is loaded in a process, calling sign() in a fork()ed child aborts (SIGABRT, Security.framework/objc). Other SDK ops survive fork; only signing is affected. Use a spawned subprocess to sign. | med | open |
+| SDK-035 | Vision | macOS fork-safety: `Vision.describe()` with a VLM provider (CLAUDE) crashes with SIGSEGV (signal 11) in a fork()ed child. Works correctly in a spawned subprocess. Same root as SDK-034; VLM path triggers an additional unsafe native routine. | high | open |
