@@ -7,7 +7,7 @@ Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 |----|------|---------|----------|--------|
 | SDK-001 | Document | `Document.open(None)` / `open(bytes)` raises bare Python `TypeError`, not a typed `NutrientArgumentNullException` | med | open |
 | SDK-002 | Document/Conversion/Editor/Forms | Corrupt/empty/wrong-magic file surfaces as `InitializationError('Arg_NullReferenceException', 1006)` instead of `DocumentError` | high | open |
-| SDK-003 | Document/Vision/Exporters | Process-wide native state corruption: one failed call poisons all later calls in the process | critical | filed |
+| SDK-003 | Document/Vision/Exporters | Process-wide native state corruption: one failed call poisons all later calls in the process (reproduced for Vision calls; NOT reproduced at Document.open level) | critical | filed |
 | SDK-004 | Document/Conversion/Signing/Exporters | Use-after-close raises bare Python `ValueError`, not typed `InvalidStateException` | med | open |
 | SDK-005 | Document | `export_as_image` ignores file extension for format selection | low | open |
 | SDK-006 | Document | `export_as_image(None)` raises `InitializationError(EmptyString,1002)` not a null-arg exception | low | open |
@@ -17,7 +17,7 @@ Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 | SDK-010 | Editor | Editor use-after-close raises `IndexOutOfBoundsException` instead of `InvalidStateException` | med | open |
 | SDK-011 | Annotations | `PdfAnnotation.get_rect()` returns an opaque native handle int, not geometry | high | open |
 | SDK-012 | Annotations | No public annotation indexer; only private `_get_item` / `get_enumerator` | med | open |
-| SDK-013 | Forms | Form-field collection out-of-range raises builtin `IndexError`, not `IndexOutOfBoundsException` | med | open |
+| SDK-013 | Forms/Document | Form-field collection AND `PdfPageCollection.__getitem__` raise builtin `IndexError` instead of a `NutrientException` subclass (while `PdfPageCollection.get_page()` is correctly typed) | med | open |
 | SDK-014 | Forms | `find_by_full_name` returns `None` silently for a missing field | med | open |
 | SDK-015 | Forms | `set_value(None)` silently accepted on a text field | med | open |
 | SDK-016 | Forms | `set_value('bogus')` on a radio/combo field accepted without option validation | med | open |

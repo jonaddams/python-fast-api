@@ -85,10 +85,17 @@ class TestEdgeCases:
             with pytest.raises(nutrient_sdk.NullOrEmptyParameterException):
                 doc.export_as_image(None)
 
-    def test_page_index_out_of_range_is_typed(self, account_form):
+    def test_get_page_out_of_range_is_typed(self, account_form):
         with Document.open(account_form) as doc:
             pages = PdfEditor.edit(doc).get_page_collection()
             with pytest.raises(nutrient_sdk.IndexOutOfBoundsException):
+                pages.get_page(999)
+
+    @defect("SDK-013", "PdfPageCollection.__getitem__ raises builtin IndexError, not a NutrientException subclass (inconsistent with get_page())")
+    def test_getitem_out_of_range_is_typed(self, account_form):
+        with Document.open(account_form) as doc:
+            pages = PdfEditor.edit(doc).get_page_collection()
+            with pytest.raises(nutrient_sdk.NutrientException):
                 _ = pages[5]
 
 
@@ -101,8 +108,9 @@ class TestSequential:
                 assert Path(out).stat().st_size > 0
                 inputs.cleanup(out)
 
-    @defect("SDK-003", "a prior failed open poisons later good opens in the same process")
     def test_failed_open_does_not_poison_next(self, account_form):
+        # A failed Document.open must not corrupt process state for a subsequent good open.
+        # (The process-wide corruption SDK-003 is Vision-specific — see test_vision.py.)
         bad = inputs.wrong_magic(".pdf")
         try:
             try:
