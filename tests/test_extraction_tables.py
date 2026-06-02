@@ -1,0 +1,36 @@
+from fastapi.testclient import TestClient
+
+from tests.conftest import requires_anthropic, requires_openai, skip_if_openai_unavailable
+
+
+@requires_anthropic
+def test_tables_endpoint_returns_structured_tables(client: TestClient, invoice_pdf_bytes: bytes):
+    response = client.post(
+        "/api/extraction/tables",
+        files={"file": ("ocr-invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["engine"] == "VLM_TABLES"
+    assert body["provider"] == "claude"
+    assert body["tableCount"] >= 1
+    first = body["tables"][0]
+    assert first["rowCount"] >= 1
+    assert first["columnCount"] >= 1
+    assert len(first["cells"]) >= 1
+    cell = first["cells"][0]
+    assert {"row", "column", "rowSpan", "colSpan", "text", "confidence", "bounds"} <= set(cell)
+
+
+@requires_openai
+def test_tables_endpoint_openai_provider_returns_same_shape(client: TestClient, invoice_pdf_bytes: bytes):
+    response = client.post(
+        "/api/extraction/tables?provider=openai",
+        files={"file": ("ocr-invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+    )
+    skip_if_openai_unavailable(response)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["engine"] == "VLM_TABLES"
+    assert body["provider"] == "openai"
+    assert "tables" in body and isinstance(body["tables"], list)
