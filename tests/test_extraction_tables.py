@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from tests.conftest import requires_anthropic, requires_openai
+from tests.conftest import requires_anthropic, requires_openai, skip_if_openai_unavailable
 
 
 @requires_anthropic
@@ -28,6 +28,7 @@ def test_tables_endpoint_openai_provider_returns_same_shape(client: TestClient, 
         "/api/extraction/tables?provider=openai",
         files={"file": ("ocr-invoice.pdf", invoice_pdf_bytes, "application/pdf")},
     )
+    skip_if_openai_unavailable(response)
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["engine"] == "VLM_TABLES"
