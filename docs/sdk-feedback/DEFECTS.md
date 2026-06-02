@@ -3,9 +3,9 @@
 Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 `filed` (JIRA ticket exists, link it), `fixed` (SDK corrected — remove the xfail).
 
-**Summary:** 35 candidate defects catalogued (SDK-001 through SDK-035). 31 are confirmed by
-automated xfail tests in `tests/sdk/`; 4 are documented-only (SDK-005, SDK-012, SDK-019,
-SDK-033). The suite is run via `make test-sdk` (`pytest tests/sdk/ --forked -v -rxX`) and
+**Summary:** 36 candidate defects catalogued (SDK-001 through SDK-036). 31 are confirmed by
+automated xfail tests in `tests/sdk/`; 5 are documented-only (SDK-005, SDK-012, SDK-019,
+SDK-033, SDK-036). The suite is run via `make test-sdk` (`pytest tests/sdk/ --forked -v -rxX`) and
 currently tallies **39 passed / 39 xfailed / 0 failed / 0 xpassed**. The `--forked` flag is
 required because SDK-003 (process-wide state corruption) and the SDK-034/035 macOS fork-safety
 class make sequential runs in a single process unreliable.
@@ -38,7 +38,7 @@ class make sequential runs in a single process unreliable.
 | SDK-024 | Redaction/Annotations | `add_redact`/markup factories accept negative/NaN/inf geometry without validation | med | open | test_annotations.py::test_negative_geometry_rejected, test_non_finite_coords_rejected; test_redaction.py::test_negative_redact_geometry_rejected |
 | SDK-025 | Redaction | APPLY_REDACTIONS footgun: default `NONE` leaves underlying content recoverable | high | open | test_redaction.py::test_default_save_burns_in_content |
 | SDK-026 | Vision | Image-only/scanned PDF fails at `InputImage` stage with truncated message | high | filed | test_vision.py::test_scanned_pdf_extracts_or_raises_clean |
-| SDK-027 | Vision | VLM-unavailable only detectable by string-matching the message; no typed exception | med | open | test_vision.py::test_bad_features_bitmask_rejected |
+| SDK-027 | Vision | Out-of-range/undefined `VisionFeatures` bitmask (e.g. `set_features(999)`) is silently accepted, not rejected with `InvalidSettingsException`/`InvalidArgumentException` | med | open | test_vision.py::test_bad_features_bitmask_rejected |
 | SDK-028 | Vision | `extraction.py` strips `VisionFeatures.FORM` assuming unlicensed, but `vision_form` is now licensed in 1.0.6 (stale) | low | open | test_vision.py::test_form_feature_is_licensed |
 | SDK-029 | Exporters | Orphaned `*Settings`: no Python API attaches settings to any exporter | high | open | test_exporters.py::test_exporter_accepts_settings |
 | SDK-030 | Exporters | `ImageExportFormat` exposes only `TIFF` despite docstring claiming PNG/JPEG/TIFF/BMP | med | open | test_exporters.py::test_image_export_formats_available |
@@ -47,6 +47,7 @@ class make sequential runs in a single process unreliable.
 | SDK-033 | Conversion/Exporters | `PresentationSettings` has zero properties (PDF→PPTX tuning incomplete) | low | open | documented-only |
 | SDK-034 | Signing | macOS fork-safety: once nutrient_sdk is loaded in a process, calling sign() in a fork()ed child aborts (SIGABRT, Security.framework/objc). Other SDK ops survive fork; only signing is affected. Use a spawned subprocess to sign. See also SDK-035. | med | open | test_signing.py::test_sign_in_forked_child_aborts (passing direct-assertion test, not xfail) |
 | SDK-035 | Vision | macOS fork-safety: `Vision.describe()` with a VLM provider (CLAUDE) crashes with SIGSEGV (signal 11) in a fork()ed child. Works correctly in a spawned subprocess. Same root cause as SDK-034. See also SDK-034. | med | open | test_vision.py::test_describe_returns_text |
+| SDK-036 | Vision | VLM-unavailable (no local server / unreachable provider) is only detectable by string-matching the exception message (`localhost:1234` / `Connection refused`); no dedicated typed exception. `extraction.py` hand-rolls `LocalVlmUnavailable` around the string match. | med | open | documented-only |
 
 **SDK-034/035 note:** The SDK is not fork-safe on macOS — operations using Security.framework
 (signing) or the VLM path (describe) abort in a fork()ed child once nutrient_sdk is loaded;
@@ -58,4 +59,4 @@ spawn a subprocess instead. Other operations survive fork.
 
 - **confirmed** — an xfail test exists; the suite asserts the defect is present every run.
 - **documented-only** — no dedicated test; defect observed and recorded but not automated.
-  These four lack coverage: SDK-005, SDK-012, SDK-019, SDK-033.
+  These five lack coverage: SDK-005, SDK-012, SDK-019, SDK-033, SDK-036.
