@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from tests.conftest import requires_anthropic
+from tests.conftest import requires_anthropic, requires_openai
 
 
 @requires_anthropic
@@ -50,3 +50,17 @@ def test_fields_endpoint_rejects_malformed_json_array(client: TestClient, invoic
         data={"fields": "[invoice_number, total]"},  # unquoted -> invalid JSON
     )
     assert response.status_code == 422, response.text
+
+
+@requires_openai
+def test_fields_endpoint_openai_provider_returns_same_shape(client: TestClient, invoice_pdf_bytes: bytes):
+    response = client.post(
+        "/api/extraction/fields?provider=openai",
+        files={"file": ("ocr-invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+        data={"fields": "invoice_number, total"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["engine"] == "VLM_FIELDS"
+    assert body["provider"] == "openai"
+    assert isinstance(body["nativeRegions"], list)
