@@ -106,6 +106,4 @@ app/
 tests/
   conftest.py        # Shared FastAPI test client + fixtures
   fixtures/          # Sample PDFs and images
-docs/
-  superpowers/       # Design specs and implementation plans
 ```

@@ -17,4 +17,6 @@ HANDOFF.md
 # Internal SDK quality feedback (defect registry, bug reports, comparisons) —
 # filed in JIRA (NAPY); not for the customer-facing repo
 docs/sdk-feedback/
+# Internal development-process artifacts (design specs, implementation plans)
+docs/superpowers/
 .DS_Store
