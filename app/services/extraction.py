@@ -34,13 +34,13 @@ def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]
     """Write bytes to a temp file and yield a path safe for Vision.
 
     PDFs are pre-rendered to a single image first. Image-only PDFs fail Vision's
-    InputImage stage, and once one Vision call fails the SDK enters a process-wide
-    bad state where every subsequent call fails identically. Pre-rendering avoids
-    triggering that path. Only the first page is rasterized. See
-    docs/sdk-feedback/bug-reports/.
+    InputImage stage (NAPY-8), and once one Vision call fails the SDK enters a
+    process-wide bad state where every subsequent call fails identically
+    (NAPY-7). Pre-rendering avoids triggering that path. Only the first page is
+    rasterized.
 
     export_as_image() writes TIFF bytes regardless of the output extension
-    (SDK-030). OpenAI's VLM API rejects TIFF outright, and the SDK's internal
+    (NAPY-16). OpenAI's VLM API rejects TIFF outright, and the SDK's internal
     re-encode of large renders can blow past Anthropic's 10 MB request cap, so
     the render is re-encoded to JPEG (same dimensions, ~6x smaller) via Pillow.
     """

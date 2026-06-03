@@ -1,4 +1,6 @@
-"""xfail helper that links a known defect to docs/sdk-feedback/DEFECTS.md."""
+"""xfail helper that links a known defect to the internal defect registry
+(docs/sdk-feedback/DEFECTS.md, local-only; high-severity entries filed as
+JIRA NAPY-7..16)."""
 import os
 
 import pytest

@@ -31,5 +31,5 @@ testpaths = ["tests"]
 # operations. pytest's faulthandler plugin intercepts it as a crash. Disable.
 addopts = "-p no:faulthandler"
 markers = [
-    "sdk_defect: marks a test that documents a known SDK defect (see docs/sdk-feedback/DEFECTS.md)",
+    "sdk_defect: marks a test that documents a known SDK defect (registry is internal; filed in JIRA as NAPY tickets)",
 ]
