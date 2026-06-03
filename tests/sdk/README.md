@@ -15,12 +15,14 @@ Tests MUST be run with `--forked`. Each test runs in a separate child process vi
 ## How xfail / defect markers work
 
 - An `xfail` test documents a **known SDK defect**. It is expected to fail.
-- A `strict` `XPASS` (unexpected pass) turns the suite **red** — this means the SDK fixed the bug. When that happens: remove the `defect()` marker and update `../../docs/sdk-feedback/DEFECTS.md` to mark the row `fixed`.
-- A new **red failure** that is NOT marked `xfail` is a freshly-found defect. Add a row to `DEFECTS.md` and wrap the test with `defect("SDK-NNN", "...")`.
+- A `strict` `XPASS` (unexpected pass) turns the suite **red** — this means the SDK fixed the bug. When that happens: remove the `defect()` marker and update the defect registry to mark the row `fixed`.
+- A new **red failure** that is NOT marked `xfail` is a freshly-found defect. Add a registry row and wrap the test with `defect("SDK-NNN", "...")`.
 
 The `defect()` helper lives in `_support/markers.py` and is a thin wrapper around `pytest.mark.xfail(strict=True, ...)`.
 
-The full defect registry is at: [`../../docs/sdk-feedback/DEFECTS.md`](../../docs/sdk-feedback/DEFECTS.md)
+The full defect registry (`docs/sdk-feedback/DEFECTS.md`) is **internal** — kept out of the
+public repo. High-severity entries are filed in JIRA (project **NAPY**, tickets NAPY-7..16);
+the SDK-NNN IDs in test markers map to registry rows.
 
 ## Fork isolation — why it is load-bearing
 
