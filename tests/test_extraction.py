@@ -55,6 +55,17 @@ def test_ocr_endpoint_extracts_image_only_pdf(client: TestClient):
     assert body["statistics"]["totalElements"] > 0
 
 
+def test_licensed_vision_features_is_full_set():
+    # vision_form IS licensed on this key (guarded live by
+    # tests/sdk/test_vision.py::test_form_feature_is_licensed), so the
+    # stale FORM opt-out must be gone and the default feature set complete.
+    from nutrient_sdk import VisionFeatures
+
+    from app.services.extraction import _LICENSED_VISION_FEATURES
+
+    assert _LICENSED_VISION_FEATURES == VisionFeatures.ALL.value
+
+
 def test_prepared_input_renders_pdf_to_vlm_safe_jpeg(invoice_pdf_bytes: bytes):
     # export_as_image() writes TIFF bytes regardless of the output extension
     # (SDK-030). OpenAI's VLM API rejects TIFF with invalid_image_format, and

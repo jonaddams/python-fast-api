@@ -51,8 +51,8 @@ class TestEdgeCases:
 
     def test_form_feature_is_licensed(self, ocr_png):
         # vision_form IS licensed on this key, so requesting FORM must succeed.
-        # (app/services/extraction.py still strips FORM as if unlicensed — a stale
-        # opt-out to clean up; see DEFECTS.md SDK-028 note. NOT an SDK defect.)
+        # (Guards the entitlement live; app/services/extraction.py uses the full
+        # feature set since the SDK-028 cleanup. See DEFECTS.md SDK-028 note.)
         with Document.open(ocr_png) as doc:
             vs = doc.get_settings().get_vision_settings()
             vs.set_engine(VisionEngine.ADAPTIVE_OCR)

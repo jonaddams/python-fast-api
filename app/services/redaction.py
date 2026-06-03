@@ -21,7 +21,8 @@ def apply_redactions(pdf_bytes: bytes, regions_json: str) -> bytes:
 
             for region in regions:
                 page_index = region.get("page", 0)
-                page = pages.get_item(page_index)
+                # Regions use 0-based page indices; the SDK's get_page() is 1-based.
+                page = pages.get_page(page_index + 1)
                 annotations = page.get_annotation_collection()
 
                 redact = annotations.add_redact(
