@@ -11,7 +11,12 @@ dependencies = [
     "nutrient-sdk-native==1.0.6",
     "cryptography",
     "python-dotenv",
+    "pillow>=10.0",
 ]
+
+[tool.setuptools.packages.find]
+# The gitignored local `recipes/` corpus breaks flat-layout auto-discovery.
+include = ["app*"]
 
 [project.optional-dependencies]
 dev = [

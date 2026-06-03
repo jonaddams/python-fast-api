@@ -55,6 +55,24 @@ def test_ocr_endpoint_extracts_image_only_pdf(client: TestClient):
     assert body["statistics"]["totalElements"] > 0
 
 
+def test_prepared_input_renders_pdf_to_vlm_safe_jpeg(invoice_pdf_bytes: bytes):
+    # export_as_image() writes TIFF bytes regardless of the output extension
+    # (SDK-030). OpenAI's VLM API rejects TIFF with invalid_image_format, and
+    # the SDK's internal re-encode of large renders can exceed Anthropic's
+    # 10 MB request cap, so the pre-render must produce a compact JPEG.
+    import os
+
+    from app.services.extraction import _prepared_input
+
+    with _prepared_input(invoice_pdf_bytes, "ocr-invoice.pdf") as path:
+        with open(path, "rb") as f:
+            magic = f.read(3)
+        size = os.path.getsize(path)
+    assert magic == b"\xff\xd8\xff", f"expected JPEG magic, got {magic!r}"
+    # Stay well under the 10 MB VLM request cap even after base64 + SDK re-encode.
+    assert size < 5_000_000, f"render unexpectedly large: {size} bytes"
+
+
 def test_vlm_endpoint_with_claude_provider_returns_extraction(
     client: TestClient, sample_image_bytes: bytes, sample_image_name: str
 ):

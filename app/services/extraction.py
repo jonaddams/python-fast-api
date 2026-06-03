@@ -4,6 +4,7 @@ import tempfile
 import os
 from collections.abc import Iterator
 
+from PIL import Image as PILImage
 from nutrient_sdk import (
     Document,
     Vision,
@@ -31,11 +32,16 @@ _LICENSED_VISION_FEATURES = VisionFeatures.ALL.value - VisionFeatures.FORM.value
 def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]:
     """Write bytes to a temp file and yield a path safe for Vision.
 
-    PDFs are pre-rendered to a single PNG first. Image-only PDFs fail Vision's
+    PDFs are pre-rendered to a single image first. Image-only PDFs fail Vision's
     InputImage stage, and once one Vision call fails the SDK enters a process-wide
     bad state where every subsequent call fails identically. Pre-rendering avoids
     triggering that path. Only the first page is rasterized. See
     docs/sdk-feedback/bug-reports/.
+
+    export_as_image() writes TIFF bytes regardless of the output extension
+    (SDK-030). OpenAI's VLM API rejects TIFF outright, and the SDK's internal
+    re-encode of large renders can blow past Anthropic's 10 MB request cap, so
+    the render is re-encoded to JPEG (same dimensions, ~6x smaller) via Pillow.
     """
     is_pdf = image_bytes[:4] == b"%PDF"
     with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
@@ -45,10 +51,12 @@ def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]
     rendered_path: str | None = None
     try:
         if is_pdf:
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as out:
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as out:
                 rendered_path = out.name
             with Document.open(inp_path) as doc:
                 doc.export_as_image(rendered_path)
+            with PILImage.open(rendered_path) as im:
+                im.convert("RGB").save(rendered_path, format="JPEG", quality=90)
             yield rendered_path
         else:
             yield inp_path
