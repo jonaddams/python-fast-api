@@ -12,3 +12,5 @@ venv/
 bugs/
 recipes/
 start.sh
+# Internal session-handoff notes — local working doc, not for the public repo
+HANDOFF.md
