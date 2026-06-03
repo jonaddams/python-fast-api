@@ -23,9 +23,10 @@ class LocalVlmUnavailable(RuntimeError):
 # nutrient-sdk 1.0.6 showed the native GC SIGSEGV no longer reproduces.
 # Re-add if segfaults reappear.
 
-# The demo license does not include the `vision_form` entitlement.
-# `VisionFeatures.ALL` includes FORM by default, so we explicitly opt out.
-_LICENSED_VISION_FEATURES = VisionFeatures.ALL.value - VisionFeatures.FORM.value
+# The license key was regenerated 2026-05-28 with the `vision_form`
+# entitlement, so the full feature set is available (the previous FORM
+# opt-out is gone; tests/sdk/test_vision.py guards the entitlement live).
+_LICENSED_VISION_FEATURES = VisionFeatures.ALL.value
 
 
 @contextlib.contextmanager
