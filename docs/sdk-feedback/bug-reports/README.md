@@ -16,7 +16,7 @@ JIRA-ticket-ready writeups of specific defects discovered while building the dem
 
 ## Reports
 
-All eight reports were filed into JIRA (project NAPY, "Native - Python SDK") on 2026-06-03.
+All reports are filed into JIRA (project NAPY, "Native - Python SDK"); the first eight on 2026-06-03, plus NAPY-15/16 the same day.
 
 | Date | Title | Severity | JIRA |
 |---|---|---|---|
@@ -28,6 +28,8 @@ All eight reports were filed into JIRA (project NAPY, "Native - Python SDK") on 
 | 2026-06-02 | [Form-field accessors always return base `PdfFormField`, never the typed subtype](./2026-06-02-form-field-collection-returns-base-type.md) | High | [NAPY-12](https://nutrient.atlassian.net/browse/NAPY-12) |
 | 2026-06-02 | [Redaction footgun: default save does not apply redactions — content remains recoverable](./2026-06-02-redaction-default-save-does-not-apply.md) | High | [NAPY-13](https://nutrient.atlassian.net/browse/NAPY-13) |
 | 2026-06-02 | [`*Settings` objects for exporters are orphaned — no Python API attaches them](./2026-06-02-exporter-settings-not-attachable.md) | High | [NAPY-14](https://nutrient.atlassian.net/browse/NAPY-14) |
+| 2026-06-03 | [`VisionFeatures.KEY_VALUE_REGION` is a no-op — no key/value-tagged elements](./2026-06-03-key-value-region-feature-is-noop.md) | High | [NAPY-15](https://nutrient.atlassian.net/browse/NAPY-15) |
+| 2026-06-03 | Image export TIFF-only + extension ignored → breaks OpenAI VLM interop *(filed from DEFECTS.md SDK-030/005 + PR #15 evidence; no standalone stub)* | High | [NAPY-16](https://nutrient.atlassian.net/browse/NAPY-16) |
 
 The two 2026-06-01 reports are companions — the first is the easiest reliable trigger for the second, but the second is independent. They are cross-linked in JIRA.
 

@@ -3,9 +3,9 @@
 Living log of defects found by `tests/sdk/`. Status: `open` (found, not filed),
 `filed` (JIRA ticket exists, link it), `fixed` (SDK corrected — remove the xfail).
 
-**Summary:** 35 SDK defects catalogued (SDK-001 through SDK-036, excluding SDK-028 which was
-reclassified as a code-cleanup). 30 are confirmed by automated xfail tests in `tests/sdk/`; 5
-are documented-only (SDK-005, SDK-012, SDK-019, SDK-033, SDK-036). SDK-028 is reclassified as
+**Summary:** 36 SDK defects catalogued (SDK-001 through SDK-037, excluding SDK-028 which was
+reclassified as a code-cleanup). 30 are confirmed by automated xfail tests in `tests/sdk/`; 6
+are documented-only (SDK-005, SDK-012, SDK-019, SDK-033, SDK-036, SDK-037). SDK-028 is reclassified as
 `code-cleanup (not SDK)` — `app/services/extraction.py` strips `VisionFeatures.FORM` assuming
 unlicensed, but `vision_form` is licensed; the fix is to drop the FORM opt-out in extraction.py.
 The suite is run via `make test-sdk` (`pytest tests/sdk/ --forked -v -rxX`) and currently tallies
@@ -23,7 +23,7 @@ every run — they are skipped by default and run with `SDK_FORK_CRASH_TESTS=1 m
 | SDK-002 | Document/Conversion/Editor/Forms | Corrupt/empty/wrong-magic file surfaces as `InitializationError('Arg_NullReferenceException', 1006)` instead of `DocumentError` | high | filed ([NAPY-9](https://nutrient.atlassian.net/browse/NAPY-9)) | test_document.py::test_open_wrong_magic_is_documenterror, test_open_empty_file_is_documenterror; test_conversion.py::test_empty_office_file_is_typed; test_editor.py::test_edit_corrupt_pdf_is_documenterror; test_exporters.py::test_none_exporter_is_typed |
 | SDK-003 | Document/Vision/Exporters | Process-wide native state corruption: one failed call poisons all later calls in the process (reproduced for Vision calls AND exporter export() with bad path — subsequent Document.open raises IOError with the stale bad path; NOT reproduced at Document.open level) | critical | filed ([NAPY-7](https://nutrient.atlassian.net/browse/NAPY-7)) | test_vision.py::test_failed_vision_does_not_poison_next; test_exporters.py::test_failed_export_does_not_leak_state |
 | SDK-004 | Document/Conversion/Signing/Exporters | Use-after-close raises bare Python `ValueError`, not typed `InvalidStateException` | med | open | test_document.py::test_use_after_close_is_typed |
-| SDK-005 | Document | `export_as_image` ignores file extension for format selection | low | open | documented-only |
+| SDK-005 | Document | `export_as_image` ignores file extension for format selection — writes TIFF bytes into a `.png`-named file | low | filed ([NAPY-16](https://nutrient.atlassian.net/browse/NAPY-16), combined with SDK-030) | documented-only |
 | SDK-006 | Document | `export_as_image(None)` raises `InitializationError(EmptyString,1002)` not a null-arg exception | low | open | test_document.py::test_export_none_path_is_null_arg |
 | SDK-007 | Editor | `PdfPage` rotation is read-only — no `set_rotation()`/`rotate()` despite "Document Editor API" entitlement | high | filed ([NAPY-10](https://nutrient.atlassian.net/browse/NAPY-10)) | test_editor.py::test_page_rotation_is_settable |
 | SDK-008 | Editor/Forms/Redaction | `PdfEditor.edit()` twice on one Document does not raise `AlreadyOpenForEditionException` (which exists) | med | open | test_editor.py::test_concurrent_edit_is_guarded |
@@ -48,13 +48,14 @@ every run — they are skipped by default and run with `SDK_FORK_CRASH_TESTS=1 m
 | SDK-027 | Vision | Out-of-range/undefined `VisionFeatures` bitmask (e.g. `set_features(999)`) is silently accepted, not rejected with `InvalidSettingsException`/`InvalidArgumentException` | med | open | test_vision.py::test_bad_features_bitmask_rejected |
 | SDK-028 | Code-cleanup (not SDK) | NOT an SDK defect — `app/services/extraction.py` stripped `VisionFeatures.FORM` assuming unlicensed, but `vision_form` IS licensed in 1.0.6. Verified FORM works (test_form_feature_is_licensed, passing). **FIXED 2026-06-03:** the FORM opt-out was removed; `_LICENSED_VISION_FEATURES` is now the full set (guarded by test_extraction.py::test_licensed_vision_features_is_full_set). | low | code-cleanup | test_vision.py::test_form_feature_is_licensed (passing regression guard) |
 | SDK-029 | Exporters | Orphaned `*Settings`: no Python API attaches settings to any exporter | high | filed ([NAPY-14](https://nutrient.atlassian.net/browse/NAPY-14)) | test_exporters.py::test_exporter_accepts_settings |
-| SDK-030 | Exporters | `ImageExportFormat` exposes only `TIFF` despite docstring claiming PNG/JPEG/TIFF/BMP | med | open | test_exporters.py::test_image_export_formats_available |
+| SDK-030 | Exporters | `ImageExportFormat` exposes only `TIFF` despite docstring claiming PNG/JPEG/TIFF/BMP; with SDK-005 this breaks VLM provider interop (OpenAI rejects the TIFF upload — see PR #15) | med | filed ([NAPY-16](https://nutrient.atlassian.net/browse/NAPY-16)) | test_exporters.py::test_image_export_formats_available |
 | SDK-031 | Exporters | `export()` doesn't guard a closed exporter — raises opaque `InitializationError(1006)` instead of a clean `ValueError` (confirmed; no native crash on macOS 1.0.6 but wrong exception type) | med | open | test_exporters.py::test_export_with_closed_exporter_is_typed |
 | SDK-032 | Conversion | `ConversionSettings.set_timeout_milliseconds(-1)` accepted unvalidated | low | open | test_conversion.py::test_negative_timeout_rejected |
 | SDK-033 | Conversion/Exporters | `PresentationSettings` has zero properties (PDF→PPTX tuning incomplete) | low | open | documented-only |
 | SDK-034 | Signing | macOS fork-safety: once nutrient_sdk is loaded in a process, calling sign() in a fork()ed child aborts (SIGABRT, Security.framework/objc). Other SDK ops survive fork; only signing is affected. Use a spawned subprocess to sign. See also SDK-035. | med | open | test_signing.py::test_sign_in_forked_child_aborts (passing direct-assertion test, not xfail) |
 | SDK-035 | Vision | macOS fork-safety: `Vision.describe()` with a VLM provider (CLAUDE) crashes with SIGSEGV (signal 11) in a fork()ed child. Works correctly in a spawned subprocess. Same root cause as SDK-034. See also SDK-034. | med | open | test_vision.py::test_describe_returns_text |
 | SDK-036 | Vision | VLM-unavailable (no local server / unreachable provider) is only detectable by string-matching the exception message (`localhost:1234` / `Connection refused`); no dedicated typed exception. `extraction.py` hand-rolls `LocalVlmUnavailable` around the string match. | med | open | documented-only |
+| SDK-037 | Vision | `VisionFeatures.KEY_VALUE_REGION` is a no-op: licensed and accepted, but output contains zero key/value-tagged elements on key-value-rich documents (verified live 2026-06-03 — 20 elements on an invoice, all paragraph/table/picture). `extraction.py` `extract_fields()` pairs it with a schema-driven `describe()` as the workaround. | high | filed ([NAPY-15](https://nutrient.atlassian.net/browse/NAPY-15)) | documented-only (live repro in bug report; no automated test — would need a live VLM call under --forked, see SDK-035 fork hostility) |
 
 **SDK-034/035 note:** The SDK is not fork-safe on macOS — operations using Security.framework
 (signing) or the VLM path (describe) abort in a fork()ed child once nutrient_sdk is loaded;
@@ -66,5 +67,5 @@ spawn a subprocess instead. Other operations survive fork.
 
 - **confirmed** — an xfail test exists; the suite asserts the defect is present every run.
 - **documented-only** — no dedicated test; defect observed and recorded but not automated.
-  These five lack coverage: SDK-005, SDK-012, SDK-019, SDK-033, SDK-036.
+  These six lack coverage: SDK-005, SDK-012, SDK-019, SDK-033, SDK-036, SDK-037.
 - **code-cleanup** — reclassified as an app-code issue, not an SDK defect (SDK-028).
