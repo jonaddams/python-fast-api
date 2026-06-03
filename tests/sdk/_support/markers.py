@@ -1,5 +1,15 @@
 """xfail helper that links a known defect to docs/sdk-feedback/DEFECTS.md."""
+import os
+
 import pytest
+
+# Tests that deliberately crash a child process (the SDK-034/035 fork-safety
+# reproductions) trigger a macOS "Python quit unexpectedly" dialog on every
+# run. Skip them by default; set SDK_FORK_CRASH_TESTS=1 to run them.
+fork_crash = pytest.mark.skipif(
+    not os.environ.get("SDK_FORK_CRASH_TESTS"),
+    reason="crashes a child process by design (macOS crash dialog); set SDK_FORK_CRASH_TESTS=1 to run",
+)
 
 
 def defect(defect_id: str, reason: str, *, raises=None):

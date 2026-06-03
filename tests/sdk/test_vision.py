@@ -7,7 +7,7 @@ import nutrient_sdk
 from nutrient_sdk import Document, Vision, VisionEngine, VisionFeatures
 
 from tests.sdk._support import inputs
-from tests.sdk._support.markers import defect
+from tests.sdk._support.markers import defect, fork_crash
 from tests.sdk.conftest import requires_anthropic
 
 LICENSED = VisionFeatures.ALL.value - VisionFeatures.FORM.value
@@ -78,6 +78,7 @@ class TestSequential:
 
 
 class TestDescribe:
+    @fork_crash
     @requires_anthropic
     @defect("SDK-035", "Vision.describe() with a VLM provider (CLAUDE) crashes with SIGSEGV in a forked child process (fork-safety: same root as SDK-034)")
     def test_describe_returns_text(self, ocr_png):

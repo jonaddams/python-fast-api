@@ -15,7 +15,7 @@ import nutrient_sdk
 from nutrient_sdk import Document, Signature, DigitalSignatureOptions
 
 from tests.sdk._support import inputs
-from tests.sdk._support.markers import defect
+from tests.sdk._support.markers import defect, fork_crash
 
 CERT = str(Path(__file__).resolve().parent.parent.parent / "app" / "certs" / "demo-certificate.p12")
 CERT_PASSWORD = "nutrient-demo"
@@ -121,6 +121,7 @@ class TestEdgeCases:
             with pytest.raises(nutrient_sdk.NullOrEmptyParameterException):
                 signer.sign(doc, None, _opts())
 
+    @fork_crash
     def test_sign_in_forked_child_aborts(self, account_form):
         """SDK-034: with nutrient_sdk loaded in the parent, sign() in a fork()ed
         child aborts (SIGABRT) on macOS (Security.framework fork hostility).
