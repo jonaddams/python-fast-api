@@ -107,5 +107,5 @@ tests/
   conftest.py        # Shared FastAPI test client + fixtures
   fixtures/          # Sample PDFs and images
 docs/
-  sdk-feedback/      # Findings to share with the Nutrient SDK team
+  superpowers/       # Design specs and implementation plans
 ```
