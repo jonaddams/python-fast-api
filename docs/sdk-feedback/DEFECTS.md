@@ -9,9 +9,13 @@ are documented-only (SDK-005, SDK-012, SDK-019, SDK-033, SDK-036). SDK-028 is re
 `code-cleanup (not SDK)` — `app/services/extraction.py` strips `VisionFeatures.FORM` assuming
 unlicensed, but `vision_form` is licensed; the fix is to drop the FORM opt-out in extraction.py.
 The suite is run via `make test-sdk` (`pytest tests/sdk/ --forked -v -rxX`) and currently tallies
-**39 passed / 39 xfailed / 0 failed / 0 xpassed**. The `--forked` flag is required because
-SDK-003 (process-wide state corruption) and the SDK-034/035 macOS fork-safety class make
-sequential runs in a single process unreliable.
+**38 passed / 38 xfailed / 2 skipped / 0 failed / 0 xpassed**. The `--forked` flag is required
+because SDK-003 (process-wide state corruption) and the SDK-034/035 macOS fork-safety class make
+sequential runs in a single process unreliable. The two fork-safety reproductions
+(test_signing.py::test_sign_in_forked_child_aborts, test_vision.py::test_describe_returns_text)
+deliberately crash a child process, which pops a macOS "Python quit unexpectedly" dialog on
+every run — they are skipped by default and run with `SDK_FORK_CRASH_TESTS=1 make test-sdk`
+(tally then: 39 passed / 39 xfailed).
 
 | ID | Area | Symptom | Severity | Status | Test |
 |----|------|---------|----------|--------|------|
