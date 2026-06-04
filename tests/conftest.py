@@ -39,6 +39,23 @@ def invoice_pdf_bytes() -> bytes:
     return OCR_INVOICE.read_bytes()
 
 
+@pytest.fixture
+def two_page_scanned_pdf(sample_image_bytes: bytes) -> bytes:
+    """Image-only 2-page PDF built at test time from the committed PNG.
+
+    Pillow writes raster-only PDF pages — exactly the input class that fails
+    Vision without the pre-render (NAPY-8). No new binary is committed.
+    """
+    import io
+
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(sample_image_bytes)).convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PDF", save_all=True, append_images=[img])
+    return buf.getvalue()
+
+
 def skip_if_openai_unavailable(response) -> None:
     """Skip a parity test when the OpenAI path is unavailable (invalid/expired
     key or unreachable endpoint) so the suite stays green until a valid

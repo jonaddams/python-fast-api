@@ -28,43 +28,103 @@ class LocalVlmUnavailable(RuntimeError):
 # opt-out is gone; tests/sdk/test_vision.py guards the entitlement live).
 _LICENSED_VISION_FEATURES = VisionFeatures.ALL.value
 
+# Scanned PDFs are pre-rendered one JPEG per page; cap how many pages a single
+# request may process (VLM engines make one provider API call per page).
+MAX_PRERENDER_PAGES = 10
+
+PAGE_BREAK = "\n\n---\n\n"
+
+
+def merge_element_pages(raw_jsons: list[str]) -> dict:
+    """Merge per-page Vision extract_content payloads into one document.
+
+    Each per-page Vision call reports pageNumber=1 and restarts readingOrder
+    at 0, so both fields are rewritten: pageNumber becomes the true 1-based
+    page index, and readingOrder becomes globally sequential across the whole
+    document (preserving each page's internal order). Without the readingOrder
+    rewrite, the readingOrder sort in _format_extraction_result would
+    interleave pages.
+    """
+    merged: list[dict] = []
+    next_order = 0
+    for page_idx, raw in enumerate(raw_jsons, start=1):
+        elements = json.loads(raw).get("elements", [])
+        elements.sort(key=lambda e: e.get("readingOrder", 0))
+        for el in elements:
+            el["pageNumber"] = page_idx
+            el["readingOrder"] = next_order
+            next_order += 1
+            merged.append(el)
+    return {"elements": merged}
+
+
+def merge_markdown_pages(texts: list[str]) -> str:
+    """Join per-page Markdown with horizontal-rule page breaks."""
+    return PAGE_BREAK.join(texts)
+
 
 @contextlib.contextmanager
-def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]:
-    """Write bytes to a temp file and yield a path safe for Vision.
+def _prepared_pages(
+    image_bytes: bytes,
+    original_filename: str,
+    max_pages: int | None = None,
+) -> Iterator[tuple[list[str], int]]:
+    """Write bytes to temp storage and yield Vision-safe per-page image paths.
 
-    PDFs are pre-rendered to a single image first. Image-only PDFs fail Vision's
-    InputImage stage (NAPY-8), and once one Vision call fails the SDK enters a
+    PDFs are pre-rendered first: image-only PDFs fail Vision's InputImage
+    stage (NAPY-8), and once one Vision call fails the SDK enters a
     process-wide bad state where every subsequent call fails identically
-    (NAPY-7). Pre-rendering avoids triggering that path. Only the first page is
-    rasterized.
+    (NAPY-7). Pre-rendering avoids triggering that path.
 
-    export_as_image() writes TIFF bytes regardless of the output extension
-    (NAPY-16). OpenAI's VLM API rejects TIFF outright, and the SDK's internal
-    re-encode of large renders can blow past Anthropic's 10 MB request cap, so
-    the render is re-encoded to JPEG (same dimensions, ~6x smaller) via Pillow.
+    export_as_image() writes a MULTI-FRAME TIFF (all pages in one call —
+    verified 2026-06-04) but ignores the output extension (NAPY-16), and
+    Vision cannot consume multi-frame TIFFs, so each frame is re-encoded to
+    its own JPEG (q90: OpenAI rejects TIFF outright; oversized PNGs blow past
+    Anthropic's 10 MB request cap after the SDK's internal upload re-encode).
+
+    Yields (paths, total_pages): up to max_pages (default MAX_PRERENDER_PAGES)
+    JPEG paths in page order, plus the document's full page count so callers
+    can report truncation. Non-PDF inputs yield ([original_path], 1).
     """
+    cap = MAX_PRERENDER_PAGES if max_pages is None else max_pages
     is_pdf = image_bytes[:4] == b"%PDF"
     with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
         inp.write(image_bytes)
         inp_path = inp.name
 
-    rendered_path: str | None = None
+    tiff_path: str | None = None
+    rendered_paths: list[str] = []
     try:
-        if is_pdf:
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as out:
-                rendered_path = out.name
-            with Document.open(inp_path) as doc:
-                doc.export_as_image(rendered_path)
-            with PILImage.open(rendered_path) as im:
-                im.convert("RGB").save(rendered_path, format="JPEG", quality=90)
-            yield rendered_path
-        else:
-            yield inp_path
+        if not is_pdf:
+            yield [inp_path], 1
+            return
+        with tempfile.NamedTemporaryFile(suffix=".tiff", delete=False) as out:
+            tiff_path = out.name
+        with Document.open(inp_path) as doc:
+            doc.export_as_image(tiff_path)
+        with PILImage.open(tiff_path) as im:
+            total_pages = getattr(im, "n_frames", 1)
+            for i in range(min(total_pages, cap)):
+                im.seek(i)
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as page_out:
+                    page_path = page_out.name
+                rendered_paths.append(page_path)  # register BEFORE save so finally cleans up on failure
+                im.convert("RGB").save(page_path, format="JPEG", quality=90)
+        yield rendered_paths, total_pages
     finally:
-        os.unlink(inp_path)
-        if rendered_path and os.path.exists(rendered_path):
-            os.unlink(rendered_path)
+        if os.path.exists(inp_path):
+            os.unlink(inp_path)
+        for p in ([tiff_path] if tiff_path else []) + rendered_paths:
+            if os.path.exists(p):
+                os.unlink(p)
+
+
+@contextlib.contextmanager
+def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]:
+    """Single-page variant of _prepared_pages — the describe path is
+    inherently per-image, so it processes page 1 only (documented)."""
+    with _prepared_pages(image_bytes, original_filename, max_pages=1) as (paths, _total):
+        yield paths[0]
 
 
 def extract_text_ocr(image_bytes: bytes, original_filename: str) -> dict:
@@ -127,9 +187,8 @@ def describe_image(
     }
 
 
-def _format_tables(raw_json: str, filename: str, provider: str) -> dict:
-    parsed = json.loads(raw_json)
-    elements = parsed.get("elements", [])
+def _format_tables(merged: dict, filename: str, provider: str) -> dict:
+    elements = merged.get("elements", [])
     tables = [e for e in elements if str(e.get("type", "")).lower() == "table"]
     return {
         "engine": "VLM_TABLES",
@@ -160,19 +219,23 @@ def _format_tables(raw_json: str, filename: str, provider: str) -> dict:
 
 
 def extract_tables(image_bytes: bytes, original_filename: str, provider: str = "claude") -> dict:
-    raw = _run_with_prerender(
+    merged, total_pages, processed_pages = _run_with_prerender(
         image_bytes,
         original_filename,
         "VLM",
         provider=provider,
         features=VisionFeatures.TABLE.value,
     )
-    return _format_tables(raw, original_filename, provider)
+    result = _format_tables(merged, original_filename, provider)
+    result["totalPages"] = total_pages
+    result["processedPages"] = processed_pages
+    return result
 
 
 def extract_markdown(image_bytes: bytes, original_filename: str, provider: str = "claude") -> dict:
-    # SDK returns Markdown text directly when output_format=MARKDOWN (not JSON).
-    md = _run_with_prerender(
+    # SDK returns Markdown text directly when output_format=MARKDOWN (not JSON);
+    # multi-page output is joined with PAGE_BREAK separators.
+    md, total_pages, processed_pages = _run_with_prerender(
         image_bytes,
         original_filename,
         "VLM",
@@ -185,6 +248,8 @@ def extract_markdown(image_bytes: bytes, original_filename: str, provider: str =
         "provider": provider,
         "markdown": md,
         "charCount": len(md),
+        "totalPages": total_pages,
+        "processedPages": processed_pages,
     }
 
 
@@ -269,14 +334,17 @@ def extract_fields(
 ) -> dict:
     # Two sequential VLM calls by design: native KEY_VALUE_REGION extraction
     # plus a schema-driven describe() pass. Both use the same provider.
-    raw = _run_with_prerender(
+    # Single-page by design: the schema-driven describe() pass below is
+    # per-image, so the native pass stays consistent (page 1 only).
+    merged, _total_pages, _processed_pages = _run_with_prerender(
         image_bytes,
         original_filename,
         "VLM",
         provider=provider,
         features=VisionFeatures.KEY_VALUE_REGION.value,
+        max_pages=1,
     )
-    elements = json.loads(raw).get("elements", [])
+    elements = merged.get("elements", [])
     native_regions = _extract_native_kv(elements)
     schema_fields, parse_error = _extract_schema_fields(
         image_bytes, original_filename, fields, provider
@@ -303,16 +371,41 @@ def _run_with_prerender(
     provider: str | None = None,
     features: int | None = None,
     output_format: VisionOutputFormat | None = None,
-) -> str:
-    """Pre-render if needed, then run Vision and return the raw extract string."""
-    with _prepared_input(image_bytes, original_filename) as path:
-        return _run_vision(
-            path,
-            engine,
-            provider=provider,
-            features=features,
-            output_format=output_format,
-        )
+    max_pages: int | None = None,
+) -> tuple[dict | str, int, int]:
+    """Pre-render if needed, run Vision once per page, merge.
+
+    Returns (merged, total_pages, processed_pages) — merged is the combined
+    elements dict, or page-break-joined text when output_format is MARKDOWN.
+
+    Pages run SEQUENTIALLY (the SDK's process-wide state fragility, NAPY-7,
+    makes concurrent Vision calls in one process unsafe) and FAIL FAST: after
+    any Vision failure the process is poisoned, so later pages could not
+    succeed anyway. The raised error is prefixed with the failing page.
+    """
+    with _prepared_pages(image_bytes, original_filename, max_pages=max_pages) as (
+        paths,
+        total_pages,
+    ):
+        raws: list[str] = []
+        for i, path in enumerate(paths, start=1):
+            try:
+                raws.append(
+                    _run_vision(
+                        path,
+                        engine,
+                        provider=provider,
+                        features=features,
+                        output_format=output_format,
+                    )
+                )
+            except (LocalVlmUnavailable, ValueError):
+                raise
+            except Exception as ex:
+                raise RuntimeError(f"page {i}/{len(paths)}: {ex}") from ex
+        if output_format is VisionOutputFormat.MARKDOWN:
+            return merge_markdown_pages(raws), total_pages, len(paths)
+        return merge_element_pages(raws), total_pages, len(paths)
 
 
 def _extract_with_engine(
@@ -322,8 +415,13 @@ def _extract_with_engine(
     *,
     provider: str | None = None,
 ) -> dict:
-    raw_json = _run_with_prerender(image_bytes, original_filename, engine, provider=provider)
-    return _format_extraction_result(raw_json, original_filename, engine)
+    merged, total_pages, processed_pages = _run_with_prerender(
+        image_bytes, original_filename, engine, provider=provider
+    )
+    result = _format_extraction_result(merged, original_filename, engine)
+    result["totalPages"] = total_pages
+    result["processedPages"] = processed_pages
+    return result
 
 
 def _run_vision(
@@ -372,9 +470,8 @@ def _run_vision(
             raise
 
 
-def _format_extraction_result(raw_json: str, filename: str, engine: str) -> dict:
-    parsed = json.loads(raw_json)
-    elements = parsed.get("elements", [])
+def _format_extraction_result(merged: dict, filename: str, engine: str) -> dict:
+    elements = merged.get("elements", [])
 
     elements.sort(key=lambda e: e.get("readingOrder", 0))
 

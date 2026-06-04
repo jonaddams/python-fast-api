@@ -82,6 +82,11 @@ Routers live under `app/routers/`. Each delegates to a service in `app/services/
 
 The OpenAPI spec at `/docs` is the source of truth for parameter shapes.
 
+Scanned/image-only PDFs are pre-rendered page-by-page: the `ocr`, `icr`, `vlm`, `tables`,
+and `markdown` endpoints process up to 10 pages per request and report `totalPages` /
+`processedPages` in the response (truncation is visible, never silent). The `describe` and
+`fields` endpoints operate on page 1 by design.
+
 ## Tests
 
 Integration tests live in `tests/`, hitting the real SDK via `fastapi.testclient.TestClient` (no mocks). Fixtures are in `tests/fixtures/`.
