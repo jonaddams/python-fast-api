@@ -28,6 +28,40 @@ class LocalVlmUnavailable(RuntimeError):
 # opt-out is gone; tests/sdk/test_vision.py guards the entitlement live).
 _LICENSED_VISION_FEATURES = VisionFeatures.ALL.value
 
+# Scanned PDFs are pre-rendered one JPEG per page; cap how many pages a single
+# request may process (VLM engines make one provider API call per page).
+MAX_PRERENDER_PAGES = 10
+
+PAGE_BREAK = "\n\n---\n\n"
+
+
+def merge_element_pages(raw_jsons: list[str]) -> dict:
+    """Merge per-page Vision extract_content payloads into one document.
+
+    Each per-page Vision call reports pageNumber=1 and restarts readingOrder
+    at 0, so both fields are rewritten: pageNumber becomes the true 1-based
+    page index, and readingOrder becomes globally sequential across the whole
+    document (preserving each page's internal order). Without the readingOrder
+    rewrite, the readingOrder sort in _format_extraction_result would
+    interleave pages.
+    """
+    merged: list[dict] = []
+    next_order = 0
+    for page_idx, raw in enumerate(raw_jsons, start=1):
+        elements = json.loads(raw).get("elements", [])
+        elements.sort(key=lambda e: e.get("readingOrder", 0))
+        for el in elements:
+            el["pageNumber"] = page_idx
+            el["readingOrder"] = next_order
+            next_order += 1
+            merged.append(el)
+    return {"elements": merged}
+
+
+def merge_markdown_pages(texts: list[str]) -> str:
+    """Join per-page Markdown with horizontal-rule page breaks."""
+    return PAGE_BREAK.join(texts)
+
 
 @contextlib.contextmanager
 def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]:
