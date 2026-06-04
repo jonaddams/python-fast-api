@@ -108,8 +108,8 @@ def _prepared_pages(
                 im.seek(i)
                 with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as page_out:
                     page_path = page_out.name
+                rendered_paths.append(page_path)  # register BEFORE save so finally cleans up on failure
                 im.convert("RGB").save(page_path, format="JPEG", quality=90)
-                rendered_paths.append(page_path)
         yield rendered_paths, total_pages
     finally:
         os.unlink(inp_path)

@@ -59,3 +59,7 @@ def test_merge_markdown_joins_with_page_break():
 
 def test_merge_markdown_single_page_has_no_separator():
     assert merge_markdown_pages(["only"]) == "only"
+
+
+def test_merge_empty_input_returns_empty_elements():
+    assert merge_element_pages([]) == {"elements": []}
