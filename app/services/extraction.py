@@ -64,41 +64,66 @@ def merge_markdown_pages(texts: list[str]) -> str:
 
 
 @contextlib.contextmanager
-def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]:
-    """Write bytes to a temp file and yield a path safe for Vision.
+def _prepared_pages(
+    image_bytes: bytes,
+    original_filename: str,
+    max_pages: int | None = None,
+) -> Iterator[tuple[list[str], int]]:
+    """Write bytes to temp storage and yield Vision-safe per-page image paths.
 
-    PDFs are pre-rendered to a single image first. Image-only PDFs fail Vision's
-    InputImage stage (NAPY-8), and once one Vision call fails the SDK enters a
+    PDFs are pre-rendered first: image-only PDFs fail Vision's InputImage
+    stage (NAPY-8), and once one Vision call fails the SDK enters a
     process-wide bad state where every subsequent call fails identically
-    (NAPY-7). Pre-rendering avoids triggering that path. Only the first page is
-    rasterized.
+    (NAPY-7). Pre-rendering avoids triggering that path.
 
-    export_as_image() writes TIFF bytes regardless of the output extension
-    (NAPY-16). OpenAI's VLM API rejects TIFF outright, and the SDK's internal
-    re-encode of large renders can blow past Anthropic's 10 MB request cap, so
-    the render is re-encoded to JPEG (same dimensions, ~6x smaller) via Pillow.
+    export_as_image() writes a MULTI-FRAME TIFF (all pages in one call —
+    verified 2026-06-04) but ignores the output extension (NAPY-16), and
+    Vision cannot consume multi-frame TIFFs, so each frame is re-encoded to
+    its own JPEG (q90: OpenAI rejects TIFF outright; oversized PNGs blow past
+    Anthropic's 10 MB request cap after the SDK's internal upload re-encode).
+
+    Yields (paths, total_pages): up to max_pages (default MAX_PRERENDER_PAGES)
+    JPEG paths in page order, plus the document's full page count so callers
+    can report truncation. Non-PDF inputs yield ([original_path], 1).
     """
+    cap = MAX_PRERENDER_PAGES if max_pages is None else max_pages
     is_pdf = image_bytes[:4] == b"%PDF"
     with tempfile.NamedTemporaryFile(suffix="-" + original_filename, delete=False) as inp:
         inp.write(image_bytes)
         inp_path = inp.name
 
-    rendered_path: str | None = None
+    tiff_path: str | None = None
+    rendered_paths: list[str] = []
     try:
-        if is_pdf:
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as out:
-                rendered_path = out.name
-            with Document.open(inp_path) as doc:
-                doc.export_as_image(rendered_path)
-            with PILImage.open(rendered_path) as im:
-                im.convert("RGB").save(rendered_path, format="JPEG", quality=90)
-            yield rendered_path
-        else:
-            yield inp_path
+        if not is_pdf:
+            yield [inp_path], 1
+            return
+        with tempfile.NamedTemporaryFile(suffix=".tiff", delete=False) as out:
+            tiff_path = out.name
+        with Document.open(inp_path) as doc:
+            doc.export_as_image(tiff_path)
+        with PILImage.open(tiff_path) as im:
+            total_pages = getattr(im, "n_frames", 1)
+            for i in range(min(total_pages, cap)):
+                im.seek(i)
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as page_out:
+                    page_path = page_out.name
+                im.convert("RGB").save(page_path, format="JPEG", quality=90)
+                rendered_paths.append(page_path)
+        yield rendered_paths, total_pages
     finally:
         os.unlink(inp_path)
-        if rendered_path and os.path.exists(rendered_path):
-            os.unlink(rendered_path)
+        for p in ([tiff_path] if tiff_path else []) + rendered_paths:
+            if os.path.exists(p):
+                os.unlink(p)
+
+
+@contextlib.contextmanager
+def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]:
+    """Single-page variant of _prepared_pages — the describe path is
+    inherently per-image, so it processes page 1 only (documented)."""
+    with _prepared_pages(image_bytes, original_filename, max_pages=1) as (paths, _total):
+        yield paths[0]
 
 
 def extract_text_ocr(image_bytes: bytes, original_filename: str) -> dict:
