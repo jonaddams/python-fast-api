@@ -112,7 +112,8 @@ def _prepared_pages(
                 im.convert("RGB").save(page_path, format="JPEG", quality=90)
         yield rendered_paths, total_pages
     finally:
-        os.unlink(inp_path)
+        if os.path.exists(inp_path):
+            os.unlink(inp_path)
         for p in ([tiff_path] if tiff_path else []) + rendered_paths:
             if os.path.exists(p):
                 os.unlink(p)
@@ -398,7 +399,7 @@ def _run_with_prerender(
                         output_format=output_format,
                     )
                 )
-            except LocalVlmUnavailable:
+            except (LocalVlmUnavailable, ValueError):
                 raise
             except Exception as ex:
                 raise RuntimeError(f"page {i}/{len(paths)}: {ex}") from ex

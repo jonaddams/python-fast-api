@@ -20,3 +20,5 @@ def test_markdown_endpoint_returns_markdown(client: TestClient):
     assert body["charCount"] > 0
     assert body["charCount"] == len(body["markdown"])
     assert "#" in body["markdown"]  # at least one heading
+    assert body["totalPages"] >= 1
+    assert body["processedPages"] >= 1
