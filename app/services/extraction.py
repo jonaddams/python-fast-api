@@ -186,9 +186,8 @@ def describe_image(
     }
 
 
-def _format_tables(raw_json: str, filename: str, provider: str) -> dict:
-    parsed = json.loads(raw_json)
-    elements = parsed.get("elements", [])
+def _format_tables(merged: dict, filename: str, provider: str) -> dict:
+    elements = merged.get("elements", [])
     tables = [e for e in elements if str(e.get("type", "")).lower() == "table"]
     return {
         "engine": "VLM_TABLES",
@@ -219,19 +218,23 @@ def _format_tables(raw_json: str, filename: str, provider: str) -> dict:
 
 
 def extract_tables(image_bytes: bytes, original_filename: str, provider: str = "claude") -> dict:
-    raw = _run_with_prerender(
+    merged, total_pages, processed_pages = _run_with_prerender(
         image_bytes,
         original_filename,
         "VLM",
         provider=provider,
         features=VisionFeatures.TABLE.value,
     )
-    return _format_tables(raw, original_filename, provider)
+    result = _format_tables(merged, original_filename, provider)
+    result["totalPages"] = total_pages
+    result["processedPages"] = processed_pages
+    return result
 
 
 def extract_markdown(image_bytes: bytes, original_filename: str, provider: str = "claude") -> dict:
-    # SDK returns Markdown text directly when output_format=MARKDOWN (not JSON).
-    md = _run_with_prerender(
+    # SDK returns Markdown text directly when output_format=MARKDOWN (not JSON);
+    # multi-page output is joined with PAGE_BREAK separators.
+    md, total_pages, processed_pages = _run_with_prerender(
         image_bytes,
         original_filename,
         "VLM",
@@ -244,6 +247,8 @@ def extract_markdown(image_bytes: bytes, original_filename: str, provider: str =
         "provider": provider,
         "markdown": md,
         "charCount": len(md),
+        "totalPages": total_pages,
+        "processedPages": processed_pages,
     }
 
 
@@ -328,14 +333,17 @@ def extract_fields(
 ) -> dict:
     # Two sequential VLM calls by design: native KEY_VALUE_REGION extraction
     # plus a schema-driven describe() pass. Both use the same provider.
-    raw = _run_with_prerender(
+    # Single-page by design: the schema-driven describe() pass below is
+    # per-image, so the native pass stays consistent (page 1 only).
+    merged, _total_pages, _processed_pages = _run_with_prerender(
         image_bytes,
         original_filename,
         "VLM",
         provider=provider,
         features=VisionFeatures.KEY_VALUE_REGION.value,
+        max_pages=1,
     )
-    elements = json.loads(raw).get("elements", [])
+    elements = merged.get("elements", [])
     native_regions = _extract_native_kv(elements)
     schema_fields, parse_error = _extract_schema_fields(
         image_bytes, original_filename, fields, provider
@@ -362,16 +370,41 @@ def _run_with_prerender(
     provider: str | None = None,
     features: int | None = None,
     output_format: VisionOutputFormat | None = None,
-) -> str:
-    """Pre-render if needed, then run Vision and return the raw extract string."""
-    with _prepared_input(image_bytes, original_filename) as path:
-        return _run_vision(
-            path,
-            engine,
-            provider=provider,
-            features=features,
-            output_format=output_format,
-        )
+    max_pages: int | None = None,
+) -> tuple[dict | str, int, int]:
+    """Pre-render if needed, run Vision once per page, merge.
+
+    Returns (merged, total_pages, processed_pages) — merged is the combined
+    elements dict, or page-break-joined text when output_format is MARKDOWN.
+
+    Pages run SEQUENTIALLY (the SDK's process-wide state fragility, NAPY-7,
+    makes concurrent Vision calls in one process unsafe) and FAIL FAST: after
+    any Vision failure the process is poisoned, so later pages could not
+    succeed anyway. The raised error is prefixed with the failing page.
+    """
+    with _prepared_pages(image_bytes, original_filename, max_pages=max_pages) as (
+        paths,
+        total_pages,
+    ):
+        raws: list[str] = []
+        for i, path in enumerate(paths, start=1):
+            try:
+                raws.append(
+                    _run_vision(
+                        path,
+                        engine,
+                        provider=provider,
+                        features=features,
+                        output_format=output_format,
+                    )
+                )
+            except LocalVlmUnavailable:
+                raise
+            except Exception as ex:
+                raise RuntimeError(f"page {i}/{len(paths)}: {ex}") from ex
+        if output_format is VisionOutputFormat.MARKDOWN:
+            return merge_markdown_pages(raws), total_pages, len(paths)
+        return merge_element_pages(raws), total_pages, len(paths)
 
 
 def _extract_with_engine(
@@ -381,8 +414,13 @@ def _extract_with_engine(
     *,
     provider: str | None = None,
 ) -> dict:
-    raw_json = _run_with_prerender(image_bytes, original_filename, engine, provider=provider)
-    return _format_extraction_result(raw_json, original_filename, engine)
+    merged, total_pages, processed_pages = _run_with_prerender(
+        image_bytes, original_filename, engine, provider=provider
+    )
+    result = _format_extraction_result(merged, original_filename, engine)
+    result["totalPages"] = total_pages
+    result["processedPages"] = processed_pages
+    return result
 
 
 def _run_vision(
@@ -431,9 +469,8 @@ def _run_vision(
             raise
 
 
-def _format_extraction_result(raw_json: str, filename: str, engine: str) -> dict:
-    parsed = json.loads(raw_json)
-    elements = parsed.get("elements", [])
+def _format_extraction_result(merged: dict, filename: str, engine: str) -> dict:
+    elements = merged.get("elements", [])
 
     elements.sort(key=lambda e: e.get("readingOrder", 0))
 

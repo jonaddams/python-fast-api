@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app.services import extraction
 from app.services.extraction import _prepared_pages
 
@@ -38,3 +40,18 @@ def test_prepared_pages_passes_images_through(sample_image_bytes: bytes):
         assert len(paths) == 1
         with open(paths[0], "rb") as f:
             assert f.read(8) == sample_image_bytes[:8]
+
+
+def test_ocr_endpoint_processes_all_pages_of_scanned_pdf(
+    client: TestClient, two_page_scanned_pdf: bytes
+):
+    response = client.post(
+        "/api/extraction/ocr",
+        files={"file": ("two-page.pdf", two_page_scanned_pdf, "application/pdf")},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["totalPages"] == 2
+    assert body["processedPages"] == 2
+    page_numbers = {e.get("pageNumber") for e in body["rawElements"]}
+    assert 2 in page_numbers, f"page 2 elements missing: {page_numbers}"
