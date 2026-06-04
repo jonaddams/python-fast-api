@@ -20,6 +20,8 @@ def test_tables_endpoint_returns_structured_tables(client: TestClient, invoice_p
     assert len(first["cells"]) >= 1
     cell = first["cells"][0]
     assert {"row", "column", "rowSpan", "colSpan", "text", "confidence", "bounds"} <= set(cell)
+    assert body["totalPages"] >= 1
+    assert body["processedPages"] >= 1
 
 
 @requires_openai

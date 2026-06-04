@@ -20,3 +20,21 @@ def test_markdown_endpoint_returns_markdown(client: TestClient):
     assert body["charCount"] > 0
     assert body["charCount"] == len(body["markdown"])
     assert "#" in body["markdown"]  # at least one heading
+    assert body["totalPages"] >= 1
+    assert body["processedPages"] >= 1
+
+
+@requires_anthropic
+def test_markdown_endpoint_merges_pages_with_separator(
+    client: TestClient, two_page_scanned_pdf: bytes
+):
+    # Two live Claude calls (one per page) — the only multi-page VLM test.
+    response = client.post(
+        "/api/extraction/markdown?provider=claude",
+        files={"file": ("two-page.pdf", two_page_scanned_pdf, "application/pdf")},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["totalPages"] == 2
+    assert body["processedPages"] == 2
+    assert "\n\n---\n\n" in body["markdown"]
