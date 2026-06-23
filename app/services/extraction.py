@@ -28,6 +28,16 @@ class LocalVlmUnavailable(RuntimeError):
 # opt-out is gone; tests/sdk/test_vision.py guards the entitlement live).
 _LICENSED_VISION_FEATURES = VisionFeatures.ALL.value
 
+# SDK 1.0.8 regression (NAPY-20 / SDK-041): requesting a narrow VisionFeatures
+# bitmask (e.g. TABLE or KEY_VALUE_REGION alone) makes extract_content() fail with
+# "AiTextCorrection: documentLayout not received from dependencies (Error Code: 3024)"
+# — the document-graph pipeline needs an internal documentLayout context that a narrow
+# selection no longer provides. A narrow selection worked on 1.0.6. Workaround: request
+# ALL features and filter the merged elements down to the type we want (table elements /
+# key-value regions). When NAPY-20 is fixed, the table/fields paths can go back to the
+# narrow feature for efficiency.
+_DOCGRAPH_FEATURES = VisionFeatures.ALL.value
+
 # Scanned PDFs are pre-rendered one JPEG per page; cap how many pages a single
 # request may process (VLM engines make one provider API call per page).
 MAX_PRERENDER_PAGES = 10
@@ -224,7 +234,7 @@ def extract_tables(image_bytes: bytes, original_filename: str, provider: str = "
         original_filename,
         "VLM",
         provider=provider,
-        features=VisionFeatures.TABLE.value,
+        features=_DOCGRAPH_FEATURES,  # NAPY-20 workaround; _format_tables filters to table elements
     )
     result = _format_tables(merged, original_filename, provider)
     result["totalPages"] = total_pages
@@ -341,7 +351,7 @@ def extract_fields(
         original_filename,
         "VLM",
         provider=provider,
-        features=VisionFeatures.KEY_VALUE_REGION.value,
+        features=_DOCGRAPH_FEATURES,  # NAPY-20 workaround; _extract_native_kv filters to KV regions
         max_pages=1,
     )
     elements = merged.get("elements", [])
