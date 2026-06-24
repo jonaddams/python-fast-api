@@ -58,10 +58,11 @@ class TestEdgeCases:
                 doc.export(out, None)
         inputs.cleanup(out)
 
-    @defect("SDK-030", "ImageExportFormat only exposes TIFF despite docstring claiming PNG/JPEG/TIFF/BMP")
     def test_image_export_formats_available(self):
+        # SDK-030 (NAPY-16) FIXED in 1.0.8: ImageExportFormat now exposes all
+        # advertised formats, not just TIFF. Kept as a regression guard.
         names = {m.name for m in ImageExportFormat}
-        assert {"PNG", "JPEG", "BMP"}.issubset(names)
+        assert {"PNG", "JPEG", "BMP", "TIFF"}.issubset(names)
 
     @defect("SDK-029", "no Python API attaches a *Settings object to any exporter")
     def test_exporter_accepts_settings(self):
