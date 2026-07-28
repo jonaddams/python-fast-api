@@ -1,12 +1,14 @@
 import contextlib
+import glob
 import json
+import re
 import tempfile
 import os
 from collections.abc import Iterator
 
-from PIL import Image as PILImage
 from nutrient_sdk import (
     Document,
+    ImageExportFormat,
     Vision,
     VisionEngine,
     VisionFeatures,
@@ -42,6 +44,13 @@ _DOCGRAPH_FEATURES = VisionFeatures.ALL.value
 # request may process (VLM engines make one provider API call per page).
 MAX_PRERENDER_PAGES = 10
 
+# JPEG quality for the pre-render. JPEG (not TIFF/PNG) because OpenAI's VLM API
+# rejects TIFF and an oversized PNG blows past Anthropic's 10 MB request cap
+# after the SDK's internal upload re-encode; q90 keeps each page ~1 MB at full
+# rasterization resolution. (Don't change the format without re-running both
+# provider paths — on-disk size != wire size.)
+_PRERENDER_JPEG_QUALITY = 90
+
 PAGE_BREAK = "\n\n---\n\n"
 
 
@@ -73,6 +82,24 @@ def merge_markdown_pages(texts: list[str]) -> str:
     return PAGE_BREAK.join(texts)
 
 
+def _collect_rendered_jpegs(base_path: str) -> list[str]:
+    """Return the JPEG files export_as_image() wrote, in page order.
+
+    A single-page document is written to base_path itself; a multi-page
+    document is written one JPEG per page as `<stem>-<1-based>.<ext>` (verified
+    on 1.0.8), with no bare base_path. Sort the suffixed files numerically so
+    page 10 follows page 9 rather than page 1.
+    """
+    stem, ext = os.path.splitext(base_path)
+    suffixed = glob.glob(glob.escape(stem) + "-*" + ext)
+    if suffixed:
+        return sorted(
+            suffixed,
+            key=lambda p: int(re.search(rf"-(\d+){re.escape(ext)}$", p).group(1)),
+        )
+    return [base_path]  # single-page: written directly to base_path
+
+
 @contextlib.contextmanager
 def _prepared_pages(
     image_bytes: bytes,
@@ -86,11 +113,10 @@ def _prepared_pages(
     process-wide bad state where every subsequent call fails identically
     (NAPY-7). Pre-rendering avoids triggering that path.
 
-    export_as_image() writes a MULTI-FRAME TIFF (all pages in one call —
-    verified 2026-06-04) but ignores the output extension (NAPY-16), and
-    Vision cannot consume multi-frame TIFFs, so each frame is re-encoded to
-    its own JPEG (q90: OpenAI rejects TIFF outright; oversized PNGs blow past
-    Anthropic's 10 MB request cap after the SDK's internal upload re-encode).
+    export_as_image() rasterizes every page to its own JPEG in one call,
+    honoring the `.jpg` extension (NAPY-16, fixed in 1.0.8 — earlier versions
+    ignored the extension and wrote a multi-frame TIFF that needed a Pillow
+    re-encode). JPEG keeps each page ~1 MB (see _PRERENDER_JPEG_QUALITY).
 
     Yields (paths, total_pages): up to max_pages (default MAX_PRERENDER_PAGES)
     JPEG paths in page order, plus the document's full page count so callers
@@ -102,30 +128,30 @@ def _prepared_pages(
         inp.write(image_bytes)
         inp_path = inp.name
 
-    tiff_path: str | None = None
+    base_path: str | None = None
     rendered_paths: list[str] = []
     try:
         if not is_pdf:
             yield [inp_path], 1
             return
-        with tempfile.NamedTemporaryFile(suffix=".tiff", delete=False) as out:
-            tiff_path = out.name
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as out:
+            base_path = out.name
         with Document.open(inp_path) as doc:
-            doc.export_as_image(tiff_path)
-        with PILImage.open(tiff_path) as im:
-            total_pages = getattr(im, "n_frames", 1)
-            for i in range(min(total_pages, cap)):
-                im.seek(i)
-                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as page_out:
-                    page_path = page_out.name
-                rendered_paths.append(page_path)  # register BEFORE save so finally cleans up on failure
-                im.convert("RGB").save(page_path, format="JPEG", quality=90)
-        yield rendered_paths, total_pages
+            total_pages = doc.get_page_count()
+            img = doc.get_settings().get_image_settings()
+            img.set_export_format(ImageExportFormat.JPEG)
+            img.set_jpeg_quality(_PRERENDER_JPEG_QUALITY)
+            doc.export_as_image(base_path)
+        # export_as_image() writes ALL pages; track them all for cleanup but
+        # only hand back (and process) the first `cap`.
+        rendered_paths = _collect_rendered_jpegs(base_path)
+        yield rendered_paths[:cap], total_pages
     finally:
-        if os.path.exists(inp_path):
-            os.unlink(inp_path)
-        for p in ([tiff_path] if tiff_path else []) + rendered_paths:
-            if os.path.exists(p):
+        # base_path is the empty temp NamedTemporaryFile created the name from;
+        # a multi-page export leaves it unused, so clean it up alongside the
+        # actual per-page JPEGs.
+        for p in {inp_path, base_path, *rendered_paths}:
+            if p and os.path.exists(p):
                 os.unlink(p)
 
 
