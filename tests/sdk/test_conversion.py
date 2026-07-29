@@ -38,8 +38,14 @@ class TestBaseline:
 
 
 class TestEdgeCases:
-    @defect("SDK-002", "empty .docx surfaces as InitializationError(1006), not ConversionError")
     def test_empty_office_file_is_typed(self):
+        # SDK-002 (.docx aspect) FIXED in 1.0.9: an empty Office file now
+        # surfaces as a typed NutrientException rather than
+        # InitializationError(1006). Kept as a regression guard.
+        #
+        # SDK-002 is only PARTIALLY fixed — the PDF-side aspects still fail and
+        # remain xfailed in test_document.py (wrong-magic and empty .pdf both
+        # still surface as InitializationError(1006)).
         path = inputs.empty_file(".docx")
         out = tempfile.mktemp(suffix=".pdf")
         try:
