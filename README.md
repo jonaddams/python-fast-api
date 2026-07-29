@@ -36,7 +36,7 @@ cp .env.example .env
 
 ```bash
 make dev        # uvicorn with --reload on port 8080
-make test       # full pytest suite, ~3–4 min (many tests make live VLM/Claude calls; tests for absent keys are skipped)
+make test       # full pytest suite, ~6 min (many tests make live VLM/Claude calls; tests for absent keys are skipped)
 make install    # re-sync the editable install with pyproject.toml
 make help       # list targets
 ```

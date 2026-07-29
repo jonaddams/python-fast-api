@@ -46,8 +46,9 @@ class TestEdgeCases:
             with pytest.raises(nutrient_sdk.IndexOutOfBoundsException):
                 pages.get_page(0)  # 1-based API
 
-    @defect("SDK-011", "get_rect() returns an opaque native handle int, not geometry")
     def test_get_rect_returns_readable_geometry(self, account_form):
+        # SDK-011 FIXED in 1.0.9: get_rect() now returns readable geometry
+        # rather than an opaque native handle int. Kept as a regression guard.
         with Document.open(account_form) as doc:
             annots = _annots(PdfEditor.edit(doc))
             a = annots.add_highlight(72.0, 700.0, 200.0, 20.0, "QA", "x")
