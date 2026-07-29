@@ -62,8 +62,12 @@ class TestEdgeCases:
 
 
 class TestSequential:
-    @defect("SDK-003", "a failed Vision call poisons subsequent good calls in the same process")
     def test_failed_vision_does_not_poison_next(self, scanned_pdf, ocr_png):
+        # SDK-003 FIXED in 1.0.9: a failed Vision call no longer poisons
+        # subsequent good calls in the same process. Kept as a regression guard.
+        #
+        # Note this does NOT make --forked optional: the SDK-034/035 macOS
+        # fork-safety class still makes single-process runs unreliable.
         try:
             _extract(scanned_pdf, VisionEngine.ADAPTIVE_OCR)  # known to fail
         except Exception:
