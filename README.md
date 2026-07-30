@@ -30,7 +30,10 @@ cp .env.example .env
 | `ALLOWED_ORIGINS` | CORS origins for the frontend, comma-separated | `http://localhost:3000` |
 | `PORT` | uvicorn bind port (used by `app.config`, not the Makefile) | `8080` |
 | `ANTHROPIC_API_KEY` | Optional, for `Vision.describe()` via Claude | — |
-| `OPENAI_API_KEY` | Optional, for `Vision.describe()` via OpenAI | — |
+| `OPENAI_API_KEY` | Optional, for `Vision.describe()` via OpenAI, and for `structured` with `provider=openai` | — |
+| `AZURE_OPENAI_API_KEY` / `AZURE_OPENAI_ENDPOINT` | Optional, for `structured` with `provider=azure` | — |
+| `LM_STUDIO_API_URL` | Optional, for `structured` with `provider=local` | `http://localhost:1234/v1` |
+| `OPENAI_STRUCTURED_MODEL` / `AZURE_STRUCTURED_MODEL` / `LM_STUDIO_MODEL` | Optional model overrides for `structured` | `gpt-5.4` / `gpt-5.4` / `local-model` |
 
 ## Running
 
@@ -77,6 +80,7 @@ Routers live under `app/routers/`. Each delegates to a service in `app/services/
 | `extraction` | `POST /api/extraction/tables` | Structured table extraction (VLM + Claude/OpenAI) |
 | `extraction` | `POST /api/extraction/markdown` | Document → clean Markdown for RAG/LLM ingestion |
 | `extraction` | `POST /api/extraction/fields` | Key-value extraction: native regions + schema-driven JSON |
+| `extraction` | `POST /api/extraction/structured` | Schema-driven extraction via the SDK's native `Vision.extract_structured()`, with grounded source rectangles and confidence (`?provider=openai\|azure\|local`) |
 | `templates` | `POST /api/templates/...` | Word template generation |
 | `redaction` | `POST /api/redaction/...` | Permanent content redaction |
 
@@ -86,6 +90,17 @@ Scanned/image-only PDFs are pre-rendered page-by-page: the `ocr`, `icr`, `vlm`, 
 and `markdown` endpoints process up to 10 pages per request and report `totalPages` /
 `processedPages` in the response (truncation is visible, never silent). The `describe` and
 `fields` endpoints operate on page 1 by design.
+
+**`structured` vs `fields`** — they look similar and are not. `fields` hand-writes a VLM prompt
+asking for JSON and post-parses the reply, so it also returns the SDK's native
+`KEY_VALUE_REGION` output for comparison. `structured` calls the SDK's own
+`Vision.extract_structured()` with a real JSON schema, so the SDK returns grounded source
+rectangles and confidence components rather than prose we parse. Prefer `structured` when you
+want citations you can draw on the page; `fields` is the "here's what a prompt gets you"
+counterpart. Unlike the pre-rendering endpoints above, `structured` passes the **original**
+document to the SDK — rasterizing first would discard the text layer and the page coordinates
+its bounding boxes are expressed in. It requires the `vision_vlm_data_extraction_api`
+entitlement; without it the SDK returns error 3017.
 
 ## Tests
 

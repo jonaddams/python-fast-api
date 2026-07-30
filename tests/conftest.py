@@ -56,6 +56,18 @@ def two_page_scanned_pdf(sample_image_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
+def skip_if_unlicensed(response) -> None:
+    """Skip when the configured key lacks the entitlement a test needs.
+
+    The SDK reports this as error 3017 naming the missing feature. Vision
+    features require entitlements beyond a base license (see README), so a
+    lesser key should leave the suite green rather than red. A genuine failure
+    still fails the assertions that follow this call.
+    """
+    if response.status_code == 500 and "3017" in response.text:
+        pytest.skip(f"license lacks a required feature: {response.text}")
+
+
 def skip_if_openai_unavailable(response) -> None:
     """Skip a parity test when the OpenAI path is unavailable (invalid/expired
     key or unreachable endpoint) so the suite stays green until a valid
