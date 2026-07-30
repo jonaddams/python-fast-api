@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
 
 from app.services.extraction import (
@@ -11,6 +13,7 @@ from app.services.extraction import (
     parse_field_names,
     LocalVlmUnavailable,
 )
+from app.services.structured import Envelope, extract_structured
 
 router = APIRouter(prefix="/api/extraction")
 
@@ -88,6 +91,57 @@ async def markdown(
         return extract_markdown(data, file.filename or "input", provider=provider)
     except LocalVlmUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/structured", response_model=Envelope)
+async def structured(
+    file: UploadFile = File(...),
+    json_schema: str = Form(
+        ...,
+        description='JSON schema envelope, e.g. {"schema": {"type": "object", '
+        '"properties": {...}, "required": [...]}}.',
+    ),
+    instructions: str = Form("", description="Optional natural-language guidance."),
+    provider: str = Query("openai", description="Provider: 'openai', 'azure' or 'local'."),
+    includeConfidence: bool = Query(True),
+    includeSourceLocations: bool = Query(
+        True, description="Return source rectangles so each value can be located."
+    ),
+    includePageImages: bool = Query(
+        False, description="Send page images alongside the parsed text (multimodal)."
+    ),
+    strict: bool = Query(
+        False, description="Enforce the schema at the provider (structured output)."
+    ),
+):
+    # Named `json_schema` on purpose. FastAPI synthesizes a body model from Form
+    # parameters, so the parameter name becomes a field on that model — and
+    # BOTH `schema` and `schema_json` shadow deprecated Pydantic v1 methods
+    # still present on v2's BaseModel, each emitting a UserWarning at import.
+    # `json_schema` does not (checked against dir(BaseModel)). Keeping `schema`
+    # as the wire name via Field(alias=...) instead trips a FastAPI/Pydantic
+    # compat bug that warns on every request — the worse trade.
+    try:
+        json.loads(json_schema)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422, detail=f"json_schema is not valid JSON: {e}"
+        )
+    try:
+        data = await file.read()
+        return extract_structured(
+            data,
+            file.filename or "input",
+            json_schema,
+            instructions=instructions,
+            provider=provider,
+            include_confidence=includeConfidence,
+            include_source_locations=includeSourceLocations,
+            include_page_images=includePageImages,
+            strict=strict,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
