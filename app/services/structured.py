@@ -28,8 +28,19 @@ _DEFAULT_MODELS = {
     "openai": os.environ.get("OPENAI_STRUCTURED_MODEL", "gpt-5.4"),
     "azure": os.environ.get("AZURE_STRUCTURED_MODEL", "gpt-5.4"),
     "local": os.environ.get("LM_STUDIO_MODEL", "local-model"),
+    # An explicit model is REQUIRED on this path. Unlike ClaudeApiSettings (which
+    # defaults to claude-sonnet-4-6), the flat ai.provider/ai.model connection has
+    # no default, and omitting it fails with "AiProcessing model is required" —
+    # which reads like the provider is unsupported when it is not.
+    # claude-sonnet-5 verified working against extract_structured(), including
+    # grounded citations, 2026-08-04.
+    "anthropic": os.environ.get("ANTHROPIC_STRUCTURED_MODEL", "claude-sonnet-5"),
 }
 _FALLBACK_MODEL = "gpt-5.4"
+
+# "claude" is the documented alias for "anthropic" on ai.provider. Normalising
+# means callers can send either and the config echo still names one thing.
+_PROVIDER_ALIASES = {"claude": "anthropic"}
 
 
 class Citation(BaseModel):
@@ -114,7 +125,7 @@ def _prepared_document(file_bytes: bytes, original_filename: str) -> Iterator[st
 
 def apply_provider(ai, provider: str) -> dict:
     """Point ai_processing_settings at the chosen provider; return a config echo."""
-    provider = provider.lower()
+    provider = _PROVIDER_ALIASES.get(provider.lower(), provider.lower())
     model = _DEFAULT_MODELS.get(provider, _FALLBACK_MODEL)
     ai.provider = provider
     ai.model = model
@@ -125,6 +136,12 @@ def apply_provider(ai, provider: str) -> dict:
         ai.api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
         ai.endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
         echo["endpoint"] = ai.endpoint
+    elif provider == "anthropic":
+        # Endpoint left unset: the SDK defaults to https://api.anthropic.com/v1/.
+        # Without this branch an unknown provider fell through to _FALLBACK_MODEL
+        # and NO api_key, i.e. an OpenAI model id sent to Anthropic with no
+        # credentials — a confusing failure rather than an honest one.
+        ai.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     elif provider == "local":
         ai.endpoint = os.environ.get("LM_STUDIO_API_URL", "http://localhost:1234/v1")
         echo["endpoint"] = ai.endpoint

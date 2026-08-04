@@ -104,7 +104,14 @@ async def structured(
         '"properties": {...}, "required": [...]}}.',
     ),
     instructions: str = Form("", description="Optional natural-language guidance."),
-    provider: str = Query("openai", description="Provider: 'openai', 'azure' or 'local'."),
+    provider: str = Query(
+        "openai",
+        description=(
+            "Provider: 'openai', 'azure', 'anthropic' (alias 'claude') or 'local'. "
+            "Anthropic requires the schema's object to set additionalProperties "
+            "to false, or its API rejects the request with a 400."
+        ),
+    ),
     includeConfidence: bool = Query(True),
     includeSourceLocations: bool = Query(
         True, description="Return source rectangles so each value can be located."

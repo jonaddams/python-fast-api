@@ -12,6 +12,7 @@ import pytest
 from app.services.structured import (
     Envelope,
     _kind_of,
+    apply_provider,
     normalize_bbox,
     parse_structured,
 )
@@ -229,3 +230,88 @@ class TestEndpoint:
                 assert 0.0 <= box[key] <= 1.0, field
             assert box["x1"] >= box["x0"]
             assert box["y1"] >= box["y0"]
+
+
+class _FakeAiSettings:
+    """Stands in for ai_processing_settings. apply_provider only ever assigns
+    attributes, so a bare object records exactly what it set."""
+
+    def __init__(self):
+        self.provider = None
+        self.model = None
+        self.api_key = None
+        self.endpoint = None
+
+
+class TestApplyProvider:
+    """Pure — apply_provider only assigns attributes and builds the echo dict."""
+
+    def test_anthropic_sets_a_model_and_the_anthropic_key(self, monkeypatch):
+        # The flat ai.provider path has NO default model, unlike
+        # ClaudeApiSettings. Omitting it fails with "AiProcessing model is
+        # required", which reads as though the provider were unsupported.
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "anthropic")
+        assert ai.provider == "anthropic"
+        assert ai.model, "anthropic must carry an explicit model"
+        assert "claude" in ai.model
+        assert ai.api_key == "test-anthropic-key"
+        assert echo == {"provider": "anthropic", "model": ai.model}
+
+    def test_claude_is_an_alias_for_anthropic(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "claude")
+        # Normalised, so the echo names one provider however it was requested.
+        assert ai.provider == "anthropic"
+        assert echo["provider"] == "anthropic"
+
+    def test_anthropic_leaves_the_endpoint_unset(self, monkeypatch):
+        # The SDK defaults to https://api.anthropic.com/v1/; setting it here
+        # would hardcode something that is already correct and may change.
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "anthropic")
+        assert ai.endpoint is None
+        assert "endpoint" not in echo
+
+    def test_anthropic_model_is_overridable(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        monkeypatch.setattr(
+            "app.services.structured._DEFAULT_MODELS",
+            {**__import__("app.services.structured", fromlist=["x"])._DEFAULT_MODELS,
+             "anthropic": "claude-opus-5"},
+        )
+        ai = _FakeAiSettings()
+        assert apply_provider(ai, "anthropic")["model"] == "claude-opus-5"
+
+    def test_provider_is_case_insensitive(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        ai = _FakeAiSettings()
+        assert apply_provider(ai, "Claude")["provider"] == "anthropic"
+
+    def test_openai_still_gets_its_own_key_and_no_endpoint(self, monkeypatch):
+        # Regression guard: adding the anthropic branch must not disturb openai.
+        monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "openai")
+        assert ai.provider == "openai"
+        assert ai.api_key == "test-openai-key"
+        assert ai.endpoint is None
+        assert "endpoint" not in echo
+
+    def test_local_still_sets_an_endpoint(self, monkeypatch):
+        monkeypatch.delenv("LM_STUDIO_API_URL", raising=False)
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "local")
+        assert ai.endpoint == "http://localhost:1234/v1"
+        assert echo["endpoint"] == "http://localhost:1234/v1"
+
+    def test_unknown_provider_still_falls_back(self):
+        # Documented existing behaviour, asserted so a change is deliberate:
+        # an unrecognised provider gets the fallback model and no credentials.
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "gemini")
+        assert echo["provider"] == "gemini"
+        assert echo["model"] == "gpt-5.4"
