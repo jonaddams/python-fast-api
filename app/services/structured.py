@@ -45,6 +45,33 @@ _FALLBACK_MODEL = "gpt-5.4"
 # means callers can send either and the config echo still names one thing.
 _PROVIDER_ALIASES = {"claude": "anthropic"}
 
+# Models a caller may request per provider. Providers absent from this map accept
+# no `model` parameter at all and always use their env default.
+#
+# Two reasons this is an allowlist rather than a pass-through: a caller-supplied
+# model combined with a configurable endpoint would turn /structured into a
+# general-purpose proxy, and silently ignoring an unknown model would let someone
+# select "Nova Pro" in the UI and watch Qwen run.
+#
+# Ids are PROVISIONAL until confirmed against the live Bedrock catalogue.
+_ALLOWED_MODELS: dict[str, set[str]] = {
+    "bedrock": {"qwen.qwen3-vl-235b-a22b", "amazon.nova-pro-v1:0"},
+}
+
+# Human labels for the UI, so the model list has one source of truth.
+_MODEL_LABELS: dict[str, str] = {
+    "qwen.qwen3-vl-235b-a22b": "Qwen3-VL 235B",
+    "amazon.nova-pro-v1:0": "Nova Pro",
+}
+
+
+class UnsupportedModel(ValueError):
+    """A caller asked for a model the provider does not offer. Mapped to 400."""
+
+
+class ProviderNotConfigured(ValueError):
+    """The chosen provider has no credentials in this deployment. Mapped to 400."""
+
 
 class Citation(BaseModel):
     """A field's location on the page, in fractional page coordinates (0..1)."""
@@ -126,10 +153,22 @@ def _prepared_document(file_bytes: bytes, original_filename: str) -> Iterator[st
             os.unlink(path)
 
 
-def apply_provider(ai, provider: str) -> dict:
+def apply_provider(ai, provider: str, model: str | None = None) -> dict:
     """Point ai_processing_settings at the chosen provider; return a config echo."""
     provider = _PROVIDER_ALIASES.get(provider.lower(), provider.lower())
-    model = _DEFAULT_MODELS.get(provider, _FALLBACK_MODEL)
+    allowed = _ALLOWED_MODELS.get(provider, set())
+    if model:
+        if not allowed:
+            raise UnsupportedModel(
+                f"provider {provider!r} does not accept a model parameter; "
+                "omit it to use the configured default"
+            )
+        if model not in allowed:
+            raise UnsupportedModel(
+                f"model {model!r} is not available for provider {provider!r}; "
+                f"allowed: {', '.join(sorted(allowed))}"
+            )
+    model = model or _DEFAULT_MODELS.get(provider, _FALLBACK_MODEL)
     ai.provider = provider
     ai.model = model
     echo: dict[str, Any] = {"provider": provider, "model": model}
@@ -156,7 +195,13 @@ def apply_provider(ai, provider: str) -> dict:
         ai.endpoint = os.environ.get(
             "BEDROCK_ENDPOINT", f"https://bedrock-mantle.{region}.api.aws/v1"
         )
-        ai.api_key = os.environ.get("BEDROCK_API_KEY", "")
+        key = os.environ.get("BEDROCK_API_KEY", "")
+        if not key:
+            raise ProviderNotConfigured(
+                "BEDROCK_API_KEY is not configured on this backend; "
+                "see GET /api/extraction/providers for what is available"
+            )
+        ai.api_key = key
         echo["endpoint"] = ai.endpoint
     elif provider == "local":
         ai.endpoint = os.environ.get("LM_STUDIO_API_URL", "http://localhost:1234/v1")
@@ -245,6 +290,7 @@ def extract_structured(
     *,
     instructions: str = "",
     provider: str = "openai",
+    model: str | None = None,
     include_confidence: bool = True,
     include_source_locations: bool = True,
     include_page_images: bool = False,
@@ -256,7 +302,7 @@ def extract_structured(
         start = time.perf_counter()
         with Document.open(path) as document:
             ai = document.settings.ai_processing_settings
-            echo = apply_provider(ai, provider)
+            echo = apply_provider(ai, provider, model=model)
             ai.include_confidence = include_confidence
             ai.include_source_locations = include_source_locations
             # 1.0.9+ only; absent on 1.0.8, where assigning it would be a no-op.

@@ -13,7 +13,12 @@ from app.services.extraction import (
     parse_field_names,
     LocalVlmUnavailable,
 )
-from app.services.structured import Envelope, extract_structured
+from app.services.structured import (
+    Envelope,
+    ProviderNotConfigured,
+    UnsupportedModel,
+    extract_structured,
+)
 
 router = APIRouter(prefix="/api/extraction")
 
@@ -112,6 +117,13 @@ async def structured(
             "to false, or its API rejects the request with a 400."
         ),
     ),
+    model: str | None = Query(
+        None,
+        description=(
+            "Optional model id. Only providers with a published model list accept "
+            "this; see GET /api/extraction/providers. Rejected with 400 otherwise."
+        ),
+    ),
     includeConfidence: bool = Query(True),
     includeSourceLocations: bool = Query(
         True, description="Return source rectangles so each value can be located."
@@ -144,11 +156,16 @@ async def structured(
             json_schema,
             instructions=instructions,
             provider=provider,
+            model=model,
             include_confidence=includeConfidence,
             include_source_locations=includeSourceLocations,
             include_page_images=includePageImages,
             strict=strict,
         )
+    except UnsupportedModel as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ProviderNotConfigured as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

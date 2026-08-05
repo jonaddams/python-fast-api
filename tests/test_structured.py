@@ -11,6 +11,8 @@ import pytest
 
 from app.services.structured import (
     Envelope,
+    ProviderNotConfigured,
+    UnsupportedModel,
     _kind_of,
     apply_provider,
     normalize_bbox,
@@ -369,6 +371,90 @@ class TestApplyProvider:
         echo = apply_provider(ai, "bedrock")
         assert ai.model == "qwen.qwen3-vl-235b-a22b"
         assert echo["model"] == "qwen.qwen3-vl-235b-a22b"
+
+
+class TestModelAllowlist:
+    """A configurable endpoint plus a free-form model would make /structured a
+    general-purpose proxy. The allowlist is what stops that, and it also stops a
+    typo'd model silently running a different one."""
+
+    def test_an_allowed_model_is_used(self, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "bedrock", model="amazon.nova-pro-v1:0")
+        assert ai.model == "amazon.nova-pro-v1:0"
+        assert echo["model"] == "amazon.nova-pro-v1:0"
+
+    def test_omitting_the_model_uses_the_env_default(self, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "bedrock", model=None)
+        assert echo["model"] == "qwen.qwen3-vl-235b-a22b"
+
+    def test_a_model_outside_the_allowlist_is_rejected(self, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        ai = _FakeAiSettings()
+        with pytest.raises(UnsupportedModel) as exc:
+            apply_provider(ai, "bedrock", model="anthropic.claude-sonnet-4-6")
+        # The message must name what IS allowed; "invalid model" alone sends the
+        # reader to the wrong place.
+        assert "qwen.qwen3-vl-235b-a22b" in str(exc.value)
+
+    def test_a_model_on_a_provider_without_an_allowlist_is_rejected(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "k")
+        ai = _FakeAiSettings()
+        with pytest.raises(UnsupportedModel) as exc:
+            apply_provider(ai, "openai", model="gpt-4o")
+        assert "openai" in str(exc.value)
+
+    def test_omitting_the_model_on_openai_still_works(self, monkeypatch):
+        # Regression guard: existing providers must be untouched.
+        monkeypatch.setenv("OPENAI_API_KEY", "k")
+        ai = _FakeAiSettings()
+        assert apply_provider(ai, "openai")["model"] == "gpt-5.4"
+
+
+class TestModelEndpoint:
+    def test_an_unsupported_model_returns_400_naming_the_alternatives(
+        self, client, invoice_pdf_bytes
+    ):
+        response = client.post(
+            "/api/extraction/structured",
+            params={"provider": "bedrock", "model": "not-a-real-model"},
+            files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+            data={"json_schema": SCHEMA, "instructions": ""},
+        )
+        assert response.status_code == 400
+        assert "qwen.qwen3-vl-235b-a22b" in response.json()["detail"]
+
+
+class TestProviderNotConfigured:
+    def test_bedrock_without_a_key_is_refused_locally(self, monkeypatch):
+        # Better to fail here than to send "Bearer no-key" to AWS and surface a
+        # token-parsing error that points nowhere useful.
+        monkeypatch.delenv("BEDROCK_API_KEY", raising=False)
+        ai = _FakeAiSettings()
+        with pytest.raises(ProviderNotConfigured) as exc:
+            apply_provider(ai, "bedrock")
+        assert "BEDROCK_API_KEY" in str(exc.value)
+
+    def test_a_configured_bedrock_is_fine(self, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        ai = _FakeAiSettings()
+        assert apply_provider(ai, "bedrock")["provider"] == "bedrock"
+
+    def test_endpoint_returns_400_when_bedrock_is_unconfigured(
+        self, client, monkeypatch, invoice_pdf_bytes
+    ):
+        monkeypatch.delenv("BEDROCK_API_KEY", raising=False)
+        response = client.post(
+            "/api/extraction/structured",
+            params={"provider": "bedrock"},
+            files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+            data={"json_schema": SCHEMA, "instructions": ""},
+        )
+        assert response.status_code == 400
+        assert "BEDROCK_API_KEY" in response.json()["detail"]
 
 
 class TestBuildCode:
