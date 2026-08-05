@@ -427,6 +427,19 @@ class TestModelEndpoint:
         assert response.status_code == 400
         assert "qwen.qwen3-vl-235b-a22b" in response.json()["detail"]
 
+    def test_rejection_happens_before_the_document_is_opened(self, client):
+        # Deliberately invalid PDF bytes. If validation ran after Document.open(),
+        # this would fail with a parse/license error rather than a clean 400 —
+        # proving the model check happens before any SDK document work.
+        response = client.post(
+            "/api/extraction/structured",
+            params={"provider": "bedrock", "model": "not-a-real-model"},
+            files={"file": ("invoice.pdf", b"not a pdf", "application/pdf")},
+            data={"json_schema": SCHEMA, "instructions": ""},
+        )
+        assert response.status_code == 400
+        assert "qwen.qwen3-vl-235b-a22b" in response.json()["detail"]
+
 
 class TestProviderNotConfigured:
     def test_bedrock_without_a_key_is_refused_locally(self, monkeypatch):

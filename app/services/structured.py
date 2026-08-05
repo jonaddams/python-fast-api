@@ -153,8 +153,18 @@ def _prepared_document(file_bytes: bytes, original_filename: str) -> Iterator[st
             os.unlink(path)
 
 
-def apply_provider(ai, provider: str, model: str | None = None) -> dict:
-    """Point ai_processing_settings at the chosen provider; return a config echo."""
+def validate_provider_and_model(provider: str, model: str | None) -> str:
+    """Reject an unusable provider/model pair BEFORE any document work.
+
+    Called at the top of extract_structured() so a bad request costs nothing: the
+    alternative is parsing the whole PDF under the license, then raising. It also
+    keeps the 400-path tests free of any SDK dependency.
+
+    This is the ONE place the allowlist and credential checks live; apply_provider()
+    calls it too rather than keeping its own copy, so the two can't drift apart.
+
+    Returns the normalised provider name (post `_PROVIDER_ALIASES` lookup).
+    """
     provider = _PROVIDER_ALIASES.get(provider.lower(), provider.lower())
     allowed = _ALLOWED_MODELS.get(provider, set())
     if model:
@@ -168,6 +178,17 @@ def apply_provider(ai, provider: str, model: str | None = None) -> dict:
                 f"model {model!r} is not available for provider {provider!r}; "
                 f"allowed: {', '.join(sorted(allowed))}"
             )
+    if provider == "bedrock" and not os.environ.get("BEDROCK_API_KEY", ""):
+        raise ProviderNotConfigured(
+            "BEDROCK_API_KEY is not configured on this backend; "
+            "see GET /api/extraction/providers for what is available"
+        )
+    return provider
+
+
+def apply_provider(ai, provider: str, model: str | None = None) -> dict:
+    """Point ai_processing_settings at the chosen provider; return a config echo."""
+    provider = validate_provider_and_model(provider, model)
     model = model or _DEFAULT_MODELS.get(provider, _FALLBACK_MODEL)
     ai.provider = provider
     ai.model = model
@@ -195,13 +216,8 @@ def apply_provider(ai, provider: str, model: str | None = None) -> dict:
         ai.endpoint = os.environ.get(
             "BEDROCK_ENDPOINT", f"https://bedrock-mantle.{region}.api.aws/v1"
         )
-        key = os.environ.get("BEDROCK_API_KEY", "")
-        if not key:
-            raise ProviderNotConfigured(
-                "BEDROCK_API_KEY is not configured on this backend; "
-                "see GET /api/extraction/providers for what is available"
-            )
-        ai.api_key = key
+        # validate_provider_and_model() already confirmed BEDROCK_API_KEY is set.
+        ai.api_key = os.environ.get("BEDROCK_API_KEY", "")
         echo["endpoint"] = ai.endpoint
     elif provider == "local":
         ai.endpoint = os.environ.get("LM_STUDIO_API_URL", "http://localhost:1234/v1")
@@ -297,6 +313,11 @@ def extract_structured(
     strict: bool = False,
 ) -> Envelope:
     from nutrient_sdk import Document, StructuredExtractionRequest, Vision
+
+    # Reject a bad provider/model pair before touching the file: the alternative
+    # is writing a temp file and letting the SDK open (and license-check) the
+    # whole document only to raise anyway.
+    validate_provider_and_model(provider, model)
 
     with _prepared_document(file_bytes, original_filename) as path:
         start = time.perf_counter()
