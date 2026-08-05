@@ -17,10 +17,18 @@ from app.services.structured import (
     Envelope,
     ProviderNotConfigured,
     UnsupportedModel,
+    available_providers,
     extract_structured,
 )
 
 router = APIRouter(prefix="/api/extraction")
+
+
+@router.get("/providers")
+async def providers():
+    """Which providers this deployment can serve. The studio builds its dropdown
+    from this so it never offers an option that would fail."""
+    return {"providers": available_providers()}
 
 
 @router.post("/ocr")

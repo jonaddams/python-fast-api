@@ -501,3 +501,70 @@ class TestBuildCode:
         )
         assert 'ai.provider = "openai"' in code
         assert "ai.endpoint" not in code
+
+
+class TestAvailableProviders:
+    """Availability is env-var presence only — no network probing. A reachability
+    check would add per-request latency and would report Local as up whenever any
+    process happened to hold port 1234."""
+
+    def _ids(self, monkeypatch, **env):
+        for name in (
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "BEDROCK_API_KEY",
+            "LM_STUDIO_API_URL",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        from app.services.structured import available_providers
+
+        return [p["id"] for p in available_providers()]
+
+    def test_a_provider_without_its_key_is_absent(self, monkeypatch):
+        assert self._ids(monkeypatch) == []
+
+    def test_openai_appears_when_its_key_is_set(self, monkeypatch):
+        assert self._ids(monkeypatch, OPENAI_API_KEY="k") == ["openai"]
+
+    def test_bedrock_appears_when_its_key_is_set(self, monkeypatch):
+        assert "bedrock" in self._ids(monkeypatch, BEDROCK_API_KEY="k")
+
+    def test_local_is_gated_on_lm_studio_api_url(self, monkeypatch):
+        # This is the mechanism that hides Local on Railway: the var is set in the
+        # laptop .env and never in Railway.
+        assert "local" not in self._ids(monkeypatch, OPENAI_API_KEY="k")
+        assert "local" in self._ids(
+            monkeypatch, LM_STUDIO_API_URL="http://localhost:1234/v1"
+        )
+
+    def test_bedrock_publishes_its_models_with_labels(self, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        from app.services.structured import available_providers
+
+        bedrock = next(p for p in available_providers() if p["id"] == "bedrock")
+        ids = {m["id"] for m in bedrock["models"]}
+        assert ids == {"qwen.qwen3-vl-235b-a22b", "amazon.nova-pro-v1:0"}
+        labels = {m["label"] for m in bedrock["models"]}
+        assert "Qwen3-VL 235B" in labels
+        # The models are not multimodal on this path — no image ever reaches the
+        # wire — so no label may imply vision.
+        assert not any("vision" in label.lower() for label in labels)
+
+    def test_single_model_providers_publish_an_empty_model_list(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "k")
+        from app.services.structured import available_providers
+
+        openai = next(p for p in available_providers() if p["id"] == "openai")
+        assert openai["models"] == []
+        assert openai["defaultModel"] == "gpt-5.4"
+
+
+class TestProvidersEndpoint:
+    def test_it_returns_the_provider_list(self, client, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        response = client.get("/api/extraction/providers")
+        assert response.status_code == 200
+        ids = [p["id"] for p in response.json()["providers"]]
+        assert "bedrock" in ids

@@ -225,6 +225,43 @@ def apply_provider(ai, provider: str, model: str | None = None) -> dict:
     return echo
 
 
+# Provider id -> (display label, env var whose presence means "usable").
+# Order here is the order the UI shows.
+_PROVIDER_REGISTRY: list[tuple[str, str, str]] = [
+    ("openai", "OpenAI", "OPENAI_API_KEY"),
+    ("anthropic", "Claude", "ANTHROPIC_API_KEY"),
+    ("bedrock", "AWS Bedrock", "BEDROCK_API_KEY"),
+    ("local", "Local (LM Studio)", "LM_STUDIO_API_URL"),
+]
+
+
+def available_providers() -> list[dict]:
+    """Providers this backend can actually serve, so the UI shows no dead options.
+
+    Presence of the credential env var is the whole test — deliberately no network
+    probe. LM_STUDIO_API_URL is set locally and never in Railway, which is what
+    makes the Local option appear on a laptop and vanish when hosted. Note that
+    apply_provider() keeps its own localhost fallback for that var, so a direct API
+    call still behaves as it always has; only *listing* requires it.
+    """
+    providers: list[dict] = []
+    for provider_id, label, env_var in _PROVIDER_REGISTRY:
+        if not os.environ.get(env_var):
+            continue
+        models = sorted(_ALLOWED_MODELS.get(provider_id, set()))
+        providers.append(
+            {
+                "id": provider_id,
+                "label": label,
+                "models": [
+                    {"id": m, "label": _MODEL_LABELS.get(m, m)} for m in models
+                ],
+                "defaultModel": _DEFAULT_MODELS.get(provider_id, _FALLBACK_MODEL),
+            }
+        )
+    return providers
+
+
 def _kind_of(value: Any) -> str:
     # bool before int: bool is an int subclass in Python.
     if isinstance(value, bool):
