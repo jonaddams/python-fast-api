@@ -41,6 +41,18 @@ _DEFAULT_MODELS = {
 }
 _FALLBACK_MODEL = "gpt-5.4"
 
+# Provider id -> the env var apply_provider() reads for ai.api_key. Kept next to
+# _DEFAULT_MODELS on purpose: both are per-provider maps that _build_code() and
+# apply_provider() must agree on, and keeping them side by side is what stops
+# them from drifting apart when a provider is added or renamed. "local" has no
+# entry because it authenticates with no key at all (endpoint only).
+_API_KEY_ENV: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "azure": "AZURE_OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "bedrock": "BEDROCK_API_KEY",
+}
+
 # "claude" is the documented alias for "anthropic" on ai.provider. Normalising
 # means callers can send either and the config echo still names one thing.
 _PROVIDER_ALIASES = {"claude": "anthropic"}
@@ -63,6 +75,32 @@ _MODEL_LABELS: dict[str, str] = {
     "qwen.qwen3-vl-235b-a22b": "Qwen3-VL 235B",
     "amazon.nova-pro-v1:0": "Nova Pro",
 }
+
+
+def _validate_default_models() -> None:
+    """Fail loudly, at import time, if a provider's default model isn't a member
+    of its own allowlist.
+
+    Without this, e.g. setting BEDROCK_STRUCTURED_MODEL to a third id (exactly
+    what live verification against the real catalogue invites) produces a
+    silent, ugly failure: available_providers() publishes that id as
+    `defaultModel`, the UI's controlled <select> renders only the allowlist and
+    so falls back to displaying its first option, and the request sends no
+    `model` at all — so whatever the env var names actually runs while the user
+    watches a different model's name on screen. Raising here, at import, turns
+    that into a startup error instead of a demo-time surprise.
+    """
+    for provider, allowed in _ALLOWED_MODELS.items():
+        default = _DEFAULT_MODELS.get(provider)
+        assert default in allowed, (
+            f"{provider}'s default model {default!r} is not in its own "
+            f"allowlist {sorted(allowed)}. Point the "
+            f"{provider.upper()}_STRUCTURED_MODEL env var at one of those, or "
+            "add the id to _ALLOWED_MODELS."
+        )
+
+
+_validate_default_models()
 
 
 class UnsupportedModel(ValueError):
@@ -178,7 +216,7 @@ def validate_provider_and_model(provider: str, model: str | None) -> str:
                 f"model {model!r} is not available for provider {provider!r}; "
                 f"allowed: {', '.join(sorted(allowed))}"
             )
-    if provider == "bedrock" and not os.environ.get("BEDROCK_API_KEY", ""):
+    if provider == "bedrock" and not os.environ.get("BEDROCK_API_KEY", "").strip():
         raise ProviderNotConfigured(
             "BEDROCK_API_KEY is not configured on this backend; "
             "see GET /api/extraction/providers for what is available"
@@ -320,12 +358,22 @@ def _build_code(filename: str, echo: dict, *, include_confidence: bool,
     endpoint_line = (
         f'    ai.endpoint = "{echo["endpoint"]}"\n' if "endpoint" in echo else ""
     )
+    # Read from the environment, never print the value: this snippet is a
+    # selling point prospects copy verbatim, and it must neither leak the
+    # actual key nor suggest hardcoding one is fine. Looked up by the provider
+    # the USER chose (echo["provider"]), not wire_provider — Bedrock's key is
+    # BEDROCK_API_KEY even though the wire provider string is "openai".
+    key_env = _API_KEY_ENV.get(echo["provider"])
+    key_line = f'    ai.api_key = os.environ["{key_env}"]\n' if key_env else ""
+    import_line = "import os\n" if key_env else ""
     return (
-        "from nutrient_sdk import Document, StructuredExtractionRequest, Vision\n\n"
+        import_line
+        + "from nutrient_sdk import Document, StructuredExtractionRequest, Vision\n\n"
         f'with Document.open("{filename}") as document:\n'
         "    ai = document.settings.ai_processing_settings\n"
         + bedrock_note
         + f'    ai.provider = "{wire_provider}"\n'
+        + key_line
         + endpoint_line
         + f'    ai.model = "{echo["model"]}"\n'
         + f"    ai.include_confidence = {include_confidence}\n"

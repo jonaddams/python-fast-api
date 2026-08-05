@@ -120,9 +120,11 @@ async def structured(
     provider: str = Query(
         "openai",
         description=(
-            "Provider: 'openai', 'azure', 'anthropic' (alias 'claude') or 'local'. "
-            "Anthropic requires the schema's object to set additionalProperties "
-            "to false, or its API rejects the request with a 400."
+            "Provider: 'openai', 'azure', 'anthropic' (alias 'claude'), 'bedrock' "
+            "or 'local'. Anthropic requires the schema's object to set "
+            "additionalProperties to false, or its API rejects the request with "
+            "a 400. See GET /api/extraction/providers for which are configured "
+            "on this deployment."
         ),
     ),
     model: str | None = Query(

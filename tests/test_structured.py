@@ -373,6 +373,35 @@ class TestApplyProvider:
         assert echo["model"] == "qwen.qwen3-vl-235b-a22b"
 
 
+class TestDefaultModelAllowlistInvariant:
+    """available_providers() publishes `defaultModel` straight from
+    _DEFAULT_MODELS, which is never itself checked against _ALLOWED_MODELS. A
+    default outside its own provider's allowlist is exactly the mismatch the
+    allowlist exists to prevent: the UI's <select> would render only allowed
+    ids (falling back to displaying the first one) while the request silently
+    used the unlisted default, so the user watches one model and gets another.
+    """
+
+    def test_a_default_outside_its_own_allowlist_is_rejected(self, monkeypatch):
+        from app.services import structured
+
+        monkeypatch.setattr(
+            structured,
+            "_DEFAULT_MODELS",
+            {**structured._DEFAULT_MODELS, "bedrock": "not-a-real-model"},
+        )
+        with pytest.raises(AssertionError, match="not-a-real-model"):
+            structured._validate_default_models()
+
+    def test_the_current_configuration_satisfies_the_invariant(self):
+        # Guards the checker itself: this module already ran it at import time
+        # (or the import would have failed), so calling it again here must
+        # still not raise.
+        from app.services.structured import _validate_default_models
+
+        _validate_default_models()  # must not raise
+
+
 class TestModelAllowlist:
     """A configurable endpoint plus a free-form model would make /structured a
     general-purpose proxy. The allowlist is what stops that, and it also stops a
@@ -456,6 +485,16 @@ class TestProviderNotConfigured:
         ai = _FakeAiSettings()
         assert apply_provider(ai, "bedrock")["provider"] == "bedrock"
 
+    def test_a_whitespace_only_key_is_treated_as_unconfigured(self, monkeypatch):
+        # os.environ.get(...) is truthy for "   " — without stripping, a
+        # whitespace-only key would pass this guard and reach AWS as a bearer
+        # token, trading a clear local error for a confusing remote one.
+        monkeypatch.setenv("BEDROCK_API_KEY", "   ")
+        ai = _FakeAiSettings()
+        with pytest.raises(ProviderNotConfigured) as exc:
+            apply_provider(ai, "bedrock")
+        assert "BEDROCK_API_KEY" in str(exc.value)
+
     def test_endpoint_returns_400_when_bedrock_is_unconfigured(
         self, client, monkeypatch, invoice_pdf_bytes
     ):
@@ -501,6 +540,55 @@ class TestBuildCode:
         )
         assert 'ai.provider = "openai"' in code
         assert "ai.endpoint" not in code
+
+    def test_bedrock_snippet_reads_its_key_from_the_environment(self):
+        # A copied snippet with no ai.api_key line sends the literal "Bearer
+        # no-key" and returns 401 — this is the merge blocker the line fixes.
+        from app.services.structured import _build_code
+
+        code = _build_code(
+            "invoice.pdf",
+            {
+                "provider": "bedrock",
+                "model": "qwen.qwen3-vl-235b-a22b",
+                "endpoint": "https://bedrock-mantle.us-east-1.api.aws/v1",
+            },
+            include_confidence=True,
+            include_source_locations=True,
+        )
+        assert "import os" in code
+        assert 'ai.api_key = os.environ["BEDROCK_API_KEY"]' in code
+
+    def test_openai_snippet_reads_its_own_key_from_the_environment(self):
+        from app.services.structured import _build_code
+
+        code = _build_code(
+            "invoice.pdf",
+            {"provider": "openai", "model": "gpt-5.4"},
+            include_confidence=True,
+            include_source_locations=True,
+        )
+        assert 'ai.api_key = os.environ["OPENAI_API_KEY"]' in code
+
+    def test_snippet_never_contains_a_literal_key_value(self, monkeypatch):
+        # The snippet must never leak the actual key, nor imply hardcoding one
+        # is fine. _build_code only ever sees the echo dict (which carries no
+        # key), so this also guards against a future change that starts
+        # threading the real value through.
+        monkeypatch.setenv("BEDROCK_API_KEY", "definitely-a-real-secret-value")
+        from app.services.structured import _build_code
+
+        code = _build_code(
+            "invoice.pdf",
+            {
+                "provider": "bedrock",
+                "model": "qwen.qwen3-vl-235b-a22b",
+                "endpoint": "https://bedrock-mantle.us-east-1.api.aws/v1",
+            },
+            include_confidence=True,
+            include_source_locations=True,
+        )
+        assert "definitely-a-real-secret-value" not in code
 
 
 class TestAvailableProviders:
@@ -554,11 +642,20 @@ class TestAvailableProviders:
 
     def test_single_model_providers_publish_an_empty_model_list(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "k")
-        from app.services.structured import available_providers
+        from app.services.structured import _DEFAULT_MODELS, available_providers
 
         openai = next(p for p in available_providers() if p["id"] == "openai")
         assert openai["models"] == []
-        assert openai["defaultModel"] == "gpt-5.4"
+        # _DEFAULT_MODELS is frozen at *import* time from OPENAI_STRUCTURED_MODEL,
+        # not at test time — monkeypatch.setenv here cannot change it. Asserting
+        # the literal "gpt-5.4" would silently depend on that var being unset in
+        # whatever process imported this module first. Compare against the
+        # frozen value instead, so the dependency is stated rather than hidden.
+        assert openai["defaultModel"] == _DEFAULT_MODELS["openai"]
+        assert openai["defaultModel"] == "gpt-5.4", (
+            "this repo's dev/CI env is not expected to set OPENAI_STRUCTURED_MODEL; "
+            "if this fails, that assumption broke, not the code under test"
+        )
 
 
 class TestProvidersEndpoint:

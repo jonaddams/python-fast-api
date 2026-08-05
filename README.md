@@ -29,11 +29,14 @@ cp .env.example .env
 | `NUTRIENT_LICENSE_KEY` | Nutrient SDK license (required) | — |
 | `ALLOWED_ORIGINS` | CORS origins for the frontend, comma-separated | `http://localhost:3000` |
 | `PORT` | uvicorn bind port (used by `app.config`, not the Makefile) | `8080` |
-| `ANTHROPIC_API_KEY` | Optional, for `Vision.describe()` via Claude | — |
+| `ANTHROPIC_API_KEY` | Optional, for `Vision.describe()` via Claude, and for `structured` with `provider=anthropic` (alias `claude`) | — |
 | `OPENAI_API_KEY` | Optional, for `Vision.describe()` via OpenAI, and for `structured` with `provider=openai` | — |
 | `AZURE_OPENAI_API_KEY` / `AZURE_OPENAI_ENDPOINT` | Optional, for `structured` with `provider=azure` | — |
-| `LM_STUDIO_API_URL` | Optional, for `structured` with `provider=local` | `http://localhost:1234/v1` |
-| `OPENAI_STRUCTURED_MODEL` / `AZURE_STRUCTURED_MODEL` / `LM_STUDIO_MODEL` | Optional model overrides for `structured` | `gpt-5.4` / `gpt-5.4` / `local-model` |
+| `BEDROCK_API_KEY` | Optional, long-term Bedrock API key, for `structured` with `provider=bedrock`. Also gates whether `bedrock` appears in `GET /api/extraction/providers`. | — |
+| `BEDROCK_ENDPOINT` | Optional override for the Bedrock OpenAI-compatible endpoint (must end in `/v1`) | `https://bedrock-mantle.$AWS_REGION.api.aws/v1` |
+| `AWS_REGION` | Shapes the default Bedrock endpoint | `us-east-1` |
+| `LM_STUDIO_API_URL` | Optional, for `structured` with `provider=local`. Set locally only — its presence is what lists the `local` option. | `http://localhost:1234/v1` |
+| `OPENAI_STRUCTURED_MODEL` / `AZURE_STRUCTURED_MODEL` / `ANTHROPIC_STRUCTURED_MODEL` / `BEDROCK_STRUCTURED_MODEL` / `LM_STUDIO_MODEL` | Optional model overrides for `structured`. A Bedrock override must be one of the two ids in the server-side allowlist (see `GET /api/extraction/providers`) or the process fails to start. | `gpt-5.4` / `gpt-5.4` / `claude-sonnet-5` / `qwen.qwen3-vl-235b-a22b` / `local-model` |
 
 ## Running
 
@@ -66,6 +69,7 @@ Routers live under `app/routers/`. Each delegates to a service in `app/services/
 | Router | Endpoint | Purpose |
 |---|---|---|
 | `health` | `GET /api/health` | Liveness check |
+| `extraction` | `GET /api/extraction/providers` | Which `structured` providers/models this deployment can serve, decided from credential presence |
 | `conversion` | `POST /api/conversion/...` | Office ↔ PDF, Markdown → PDF, PDF → HTML |
 | `editor` | `POST /api/editor/...` | PDF editing primitives |
 | `forms` | `POST /api/forms/list-fields` | Enumerate existing form fields |
@@ -80,7 +84,7 @@ Routers live under `app/routers/`. Each delegates to a service in `app/services/
 | `extraction` | `POST /api/extraction/tables` | Structured table extraction (VLM + Claude/OpenAI) |
 | `extraction` | `POST /api/extraction/markdown` | Document → clean Markdown for RAG/LLM ingestion |
 | `extraction` | `POST /api/extraction/fields` | Key-value extraction: native regions + schema-driven JSON |
-| `extraction` | `POST /api/extraction/structured` | Schema-driven extraction via the SDK's native `Vision.extract_structured()`, with grounded source rectangles and confidence (`?provider=openai\|azure\|local`) |
+| `extraction` | `POST /api/extraction/structured` | Schema-driven extraction via the SDK's native `Vision.extract_structured()`, with grounded source rectangles and confidence (`?provider=openai\|azure\|anthropic\|bedrock\|local`) |
 | `templates` | `POST /api/templates/...` | Word template generation |
 | `redaction` | `POST /api/redaction/...` | Permanent content redaction |
 
