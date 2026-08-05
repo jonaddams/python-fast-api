@@ -35,12 +35,92 @@ _DEFAULT_MODELS = {
     # claude-sonnet-5 verified working against extract_structured(), including
     # grounded citations, 2026-08-04.
     "anthropic": os.environ.get("ANTHROPIC_STRUCTURED_MODEL", "claude-sonnet-5"),
+    # Bedrock model ids are not recognised by the SDK, which is why requests on this
+    # path carry logprobs/top_logprobs. Ids verified live against the real
+    # Bedrock catalogue 2026-08-04: see the comment on _ALLOWED_MODELS below.
+    "bedrock": os.environ.get(
+        "BEDROCK_STRUCTURED_MODEL", "qwen.qwen3-vl-235b-a22b-instruct"
+    ),
 }
 _FALLBACK_MODEL = "gpt-5.4"
+
+# Provider id -> the env var apply_provider() reads for ai.api_key. Kept next to
+# _DEFAULT_MODELS on purpose: both are per-provider maps that _build_code() and
+# apply_provider() must agree on, and keeping them side by side is what stops
+# them from drifting apart when a provider is added or renamed. "local" has no
+# entry because it authenticates with no key at all (endpoint only).
+_API_KEY_ENV: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "azure": "AZURE_OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "bedrock": "BEDROCK_API_KEY",
+}
 
 # "claude" is the documented alias for "anthropic" on ai.provider. Normalising
 # means callers can send either and the config echo still names one thing.
 _PROVIDER_ALIASES = {"claude": "anthropic"}
+
+# Models a caller may request per provider. Providers absent from this map accept
+# no `model` parameter at all and always use their env default.
+#
+# Two reasons this is an allowlist rather than a pass-through: a caller-supplied
+# model combined with a configurable endpoint would turn /structured into a
+# general-purpose proxy, and silently ignoring an unknown model would let someone
+# select "Gemma 3 27B" in the UI and watch Qwen run.
+#
+# Ids verified live against the real Bedrock catalogue 2026-08-04
+# (https://bedrock-mantle.us-east-1.api.aws/v1). Notes from that verification:
+# - There are no amazon.nova-* models on this endpoint at all (GET /v1/models
+#   returned 55 models, zero of them Nova) — the id previously here
+#   (amazon.nova-pro-v1:0) does not exist and was replaced with Gemma.
+# - GET /v1/models lists more than /v1/chat/completions accepts: e.g.
+#   google.gemma-4-31b and anthropic.claude-sonnet-5 both appear in the
+#   catalogue but are rejected on the chat-completions route. Catalogue
+#   membership does not imply usability — only these two ids were confirmed
+#   to actually work end to end.
+_ALLOWED_MODELS: dict[str, set[str]] = {
+    "bedrock": {"qwen.qwen3-vl-235b-a22b-instruct", "google.gemma-3-27b-it"},
+}
+
+# Human labels for the UI, so the model list has one source of truth.
+_MODEL_LABELS: dict[str, str] = {
+    "qwen.qwen3-vl-235b-a22b-instruct": "Qwen3-VL 235B",
+    "google.gemma-3-27b-it": "Gemma 3 27B",
+}
+
+
+def _validate_default_models() -> None:
+    """Fail loudly, at import time, if a provider's default model isn't a member
+    of its own allowlist.
+
+    Without this, e.g. setting BEDROCK_STRUCTURED_MODEL to a third id (exactly
+    what live verification against the real catalogue invites) produces a
+    silent, ugly failure: available_providers() publishes that id as
+    `defaultModel`, the UI's controlled <select> renders only the allowlist and
+    so falls back to displaying its first option, and the request sends no
+    `model` at all — so whatever the env var names actually runs while the user
+    watches a different model's name on screen. Raising here, at import, turns
+    that into a startup error instead of a demo-time surprise.
+    """
+    for provider, allowed in _ALLOWED_MODELS.items():
+        default = _DEFAULT_MODELS.get(provider)
+        assert default in allowed, (
+            f"{provider}'s default model {default!r} is not in its own "
+            f"allowlist {sorted(allowed)}. Point the "
+            f"{provider.upper()}_STRUCTURED_MODEL env var at one of those, or "
+            "add the id to _ALLOWED_MODELS."
+        )
+
+
+_validate_default_models()
+
+
+class UnsupportedModel(ValueError):
+    """A caller asked for a model the provider does not offer. Mapped to 400."""
+
+
+class ProviderNotConfigured(ValueError):
+    """The chosen provider has no credentials in this deployment. Mapped to 400."""
 
 
 class Citation(BaseModel):
@@ -123,10 +203,43 @@ def _prepared_document(file_bytes: bytes, original_filename: str) -> Iterator[st
             os.unlink(path)
 
 
-def apply_provider(ai, provider: str) -> dict:
-    """Point ai_processing_settings at the chosen provider; return a config echo."""
+def validate_provider_and_model(provider: str, model: str | None) -> str:
+    """Reject an unusable provider/model pair BEFORE any document work.
+
+    Called at the top of extract_structured() so a bad request costs nothing: the
+    alternative is parsing the whole PDF under the license, then raising. It also
+    keeps the 400-path tests free of any SDK dependency.
+
+    This is the ONE place the allowlist and credential checks live; apply_provider()
+    calls it too rather than keeping its own copy, so the two can't drift apart.
+
+    Returns the normalised provider name (post `_PROVIDER_ALIASES` lookup).
+    """
     provider = _PROVIDER_ALIASES.get(provider.lower(), provider.lower())
-    model = _DEFAULT_MODELS.get(provider, _FALLBACK_MODEL)
+    allowed = _ALLOWED_MODELS.get(provider, set())
+    if model:
+        if not allowed:
+            raise UnsupportedModel(
+                f"provider {provider!r} does not accept a model parameter; "
+                "omit it to use the configured default"
+            )
+        if model not in allowed:
+            raise UnsupportedModel(
+                f"model {model!r} is not available for provider {provider!r}; "
+                f"allowed: {', '.join(sorted(allowed))}"
+            )
+    if provider == "bedrock" and not os.environ.get("BEDROCK_API_KEY", "").strip():
+        raise ProviderNotConfigured(
+            "BEDROCK_API_KEY is not configured on this backend; "
+            "see GET /api/extraction/providers for what is available"
+        )
+    return provider
+
+
+def apply_provider(ai, provider: str, model: str | None = None) -> dict:
+    """Point ai_processing_settings at the chosen provider; return a config echo."""
+    provider = validate_provider_and_model(provider, model)
+    model = model or _DEFAULT_MODELS.get(provider, _FALLBACK_MODEL)
     ai.provider = provider
     ai.model = model
     echo: dict[str, Any] = {"provider": provider, "model": model}
@@ -142,10 +255,61 @@ def apply_provider(ai, provider: str) -> dict:
         # and NO api_key, i.e. an OpenAI model id sent to Anthropic with no
         # credentials — a confusing failure rather than an honest one.
         ai.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    elif provider == "bedrock":
+        # Bedrock's OpenAI-compatible surface. ai.provider becomes "openai" because
+        # the SDK rejects every other value on this path; only the endpoint and key
+        # differ. The trailing /v1 is REQUIRED — the SDK appends "/chat/completions"
+        # verbatim. Bearer auth replaces SigV4 entirely, so AWS_ACCESS_KEY_ID and
+        # AWS_SECRET_ACCESS_KEY are not used here.
+        ai.provider = "openai"
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        ai.endpoint = os.environ.get(
+            "BEDROCK_ENDPOINT", f"https://bedrock-mantle.{region}.api.aws/v1"
+        )
+        # validate_provider_and_model() already confirmed BEDROCK_API_KEY is set.
+        ai.api_key = os.environ.get("BEDROCK_API_KEY", "")
+        echo["endpoint"] = ai.endpoint
     elif provider == "local":
         ai.endpoint = os.environ.get("LM_STUDIO_API_URL", "http://localhost:1234/v1")
         echo["endpoint"] = ai.endpoint
     return echo
+
+
+# Provider id -> (display label, env var whose presence means "usable").
+# Order here is the order the UI shows.
+_PROVIDER_REGISTRY: list[tuple[str, str, str]] = [
+    ("openai", "OpenAI", "OPENAI_API_KEY"),
+    ("anthropic", "Claude", "ANTHROPIC_API_KEY"),
+    ("bedrock", "AWS Bedrock", "BEDROCK_API_KEY"),
+    ("local", "Local (LM Studio)", "LM_STUDIO_API_URL"),
+]
+
+
+def available_providers() -> list[dict]:
+    """Providers this backend can actually serve, so the UI shows no dead options.
+
+    Presence of the credential env var is the whole test — deliberately no network
+    probe. LM_STUDIO_API_URL is set locally and never in Railway, which is what
+    makes the Local option appear on a laptop and vanish when hosted. Note that
+    apply_provider() keeps its own localhost fallback for that var, so a direct API
+    call still behaves as it always has; only *listing* requires it.
+    """
+    providers: list[dict] = []
+    for provider_id, label, env_var in _PROVIDER_REGISTRY:
+        if not os.environ.get(env_var):
+            continue
+        models = sorted(_ALLOWED_MODELS.get(provider_id, set()))
+        providers.append(
+            {
+                "id": provider_id,
+                "label": label,
+                "models": [
+                    {"id": m, "label": _MODEL_LABELS.get(m, m)} for m in models
+                ],
+                "defaultModel": _DEFAULT_MODELS.get(provider_id, _FALLBACK_MODEL),
+            }
+        )
+    return providers
 
 
 def _kind_of(value: Any) -> str:
@@ -193,17 +357,42 @@ def parse_structured(raw_json: str, filename: str) -> StructuredData:
 def _build_code(filename: str, echo: dict, *, include_confidence: bool,
                 include_source_locations: bool) -> str:
     """The snippet the UI shows as 'how you'd do this yourself'."""
+    # The echo names the provider the USER chose; the SDK needs the one it accepts.
+    # For Bedrock those differ, and printing "bedrock" would hand out a snippet
+    # that cannot run.
+    wire_provider = "openai" if echo["provider"] == "bedrock" else echo["provider"]
+    bedrock_note = (
+        "    # Bedrock speaks the OpenAI chat-completions API, so the provider is\n"
+        '    # "openai" and the endpoint points at Bedrock. The trailing /v1 matters.\n'
+        if echo["provider"] == "bedrock"
+        else ""
+    )
+    endpoint_line = (
+        f'    ai.endpoint = "{echo["endpoint"]}"\n' if "endpoint" in echo else ""
+    )
+    # Read from the environment, never print the value: this snippet is a
+    # selling point prospects copy verbatim, and it must neither leak the
+    # actual key nor suggest hardcoding one is fine. Looked up by the provider
+    # the USER chose (echo["provider"]), not wire_provider — Bedrock's key is
+    # BEDROCK_API_KEY even though the wire provider string is "openai".
+    key_env = _API_KEY_ENV.get(echo["provider"])
+    key_line = f'    ai.api_key = os.environ["{key_env}"]\n' if key_env else ""
+    import_line = "import os\n" if key_env else ""
     return (
-        "from nutrient_sdk import Document, StructuredExtractionRequest, Vision\n\n"
+        import_line
+        + "from nutrient_sdk import Document, StructuredExtractionRequest, Vision\n\n"
         f'with Document.open("{filename}") as document:\n'
         "    ai = document.settings.ai_processing_settings\n"
-        f'    ai.provider = "{echo["provider"]}"\n'
-        f'    ai.model = "{echo["model"]}"\n'
-        f"    ai.include_confidence = {include_confidence}\n"
-        f"    ai.include_source_locations = {include_source_locations}\n"
-        "    request = StructuredExtractionRequest()\n"
-        "    request.schema = SCHEMA\n"
-        "    result = Vision.set(document).extract_structured(request)\n"
+        + bedrock_note
+        + f'    ai.provider = "{wire_provider}"\n'
+        + key_line
+        + endpoint_line
+        + f'    ai.model = "{echo["model"]}"\n'
+        + f"    ai.include_confidence = {include_confidence}\n"
+        + f"    ai.include_source_locations = {include_source_locations}\n"
+        + "    request = StructuredExtractionRequest()\n"
+        + "    request.schema = SCHEMA\n"
+        + "    result = Vision.set(document).extract_structured(request)\n"
     )
 
 
@@ -214,6 +403,7 @@ def extract_structured(
     *,
     instructions: str = "",
     provider: str = "openai",
+    model: str | None = None,
     include_confidence: bool = True,
     include_source_locations: bool = True,
     include_page_images: bool = False,
@@ -221,11 +411,16 @@ def extract_structured(
 ) -> Envelope:
     from nutrient_sdk import Document, StructuredExtractionRequest, Vision
 
+    # Reject a bad provider/model pair before touching the file: the alternative
+    # is writing a temp file and letting the SDK open (and license-check) the
+    # whole document only to raise anyway.
+    validate_provider_and_model(provider, model)
+
     with _prepared_document(file_bytes, original_filename) as path:
         start = time.perf_counter()
         with Document.open(path) as document:
             ai = document.settings.ai_processing_settings
-            echo = apply_provider(ai, provider)
+            echo = apply_provider(ai, provider, model=model)
             ai.include_confidence = include_confidence
             ai.include_source_locations = include_source_locations
             # 1.0.9+ only; absent on 1.0.8, where assigning it would be a no-op.
