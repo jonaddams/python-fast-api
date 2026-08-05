@@ -36,7 +36,7 @@ cp .env.example .env
 | `BEDROCK_ENDPOINT` | Optional override for the Bedrock OpenAI-compatible endpoint (must end in `/v1`) | `https://bedrock-mantle.$AWS_REGION.api.aws/v1` |
 | `AWS_REGION` | Shapes the default Bedrock endpoint | `us-east-1` |
 | `LM_STUDIO_API_URL` | Optional, for `structured` with `provider=local`. Set locally only — its presence is what lists the `local` option. | `http://localhost:1234/v1` |
-| `OPENAI_STRUCTURED_MODEL` / `AZURE_STRUCTURED_MODEL` / `ANTHROPIC_STRUCTURED_MODEL` / `BEDROCK_STRUCTURED_MODEL` / `LM_STUDIO_MODEL` | Optional model overrides for `structured`. A Bedrock override must be one of the two ids in the server-side allowlist (see `GET /api/extraction/providers`) or the process fails to start. | `gpt-5.4` / `gpt-5.4` / `claude-sonnet-5` / `qwen.qwen3-vl-235b-a22b` / `local-model` |
+| `OPENAI_STRUCTURED_MODEL` / `AZURE_STRUCTURED_MODEL` / `ANTHROPIC_STRUCTURED_MODEL` / `BEDROCK_STRUCTURED_MODEL` / `LM_STUDIO_MODEL` | Optional model overrides for `structured`. A Bedrock override must be one of the two ids in the server-side allowlist (see `GET /api/extraction/providers`) or the process fails to start. | `gpt-5.4` / `gpt-5.4` / `claude-sonnet-5` / `qwen.qwen3-vl-235b-a22b-instruct` / `local-model` |
 
 ## Running
 

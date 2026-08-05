@@ -369,8 +369,8 @@ class TestApplyProvider:
         monkeypatch.setenv("BEDROCK_API_KEY", "k")
         ai = _FakeAiSettings()
         echo = apply_provider(ai, "bedrock")
-        assert ai.model == "qwen.qwen3-vl-235b-a22b"
-        assert echo["model"] == "qwen.qwen3-vl-235b-a22b"
+        assert ai.model == "qwen.qwen3-vl-235b-a22b-instruct"
+        assert echo["model"] == "qwen.qwen3-vl-235b-a22b-instruct"
 
 
 class TestDefaultModelAllowlistInvariant:
@@ -410,15 +410,15 @@ class TestModelAllowlist:
     def test_an_allowed_model_is_used(self, monkeypatch):
         monkeypatch.setenv("BEDROCK_API_KEY", "k")
         ai = _FakeAiSettings()
-        echo = apply_provider(ai, "bedrock", model="amazon.nova-pro-v1:0")
-        assert ai.model == "amazon.nova-pro-v1:0"
-        assert echo["model"] == "amazon.nova-pro-v1:0"
+        echo = apply_provider(ai, "bedrock", model="google.gemma-3-27b-it")
+        assert ai.model == "google.gemma-3-27b-it"
+        assert echo["model"] == "google.gemma-3-27b-it"
 
     def test_omitting_the_model_uses_the_env_default(self, monkeypatch):
         monkeypatch.setenv("BEDROCK_API_KEY", "k")
         ai = _FakeAiSettings()
         echo = apply_provider(ai, "bedrock", model=None)
-        assert echo["model"] == "qwen.qwen3-vl-235b-a22b"
+        assert echo["model"] == "qwen.qwen3-vl-235b-a22b-instruct"
 
     def test_a_model_outside_the_allowlist_is_rejected(self, monkeypatch):
         monkeypatch.setenv("BEDROCK_API_KEY", "k")
@@ -427,7 +427,7 @@ class TestModelAllowlist:
             apply_provider(ai, "bedrock", model="anthropic.claude-sonnet-4-6")
         # The message must name what IS allowed; "invalid model" alone sends the
         # reader to the wrong place.
-        assert "qwen.qwen3-vl-235b-a22b" in str(exc.value)
+        assert "qwen.qwen3-vl-235b-a22b-instruct" in str(exc.value)
 
     def test_a_model_on_a_provider_without_an_allowlist_is_rejected(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "k")
@@ -454,7 +454,7 @@ class TestModelEndpoint:
             data={"json_schema": SCHEMA, "instructions": ""},
         )
         assert response.status_code == 400
-        assert "qwen.qwen3-vl-235b-a22b" in response.json()["detail"]
+        assert "qwen.qwen3-vl-235b-a22b-instruct" in response.json()["detail"]
 
     def test_rejection_happens_before_the_document_is_opened(self, client):
         # Deliberately invalid PDF bytes. If validation ran after Document.open(),
@@ -467,7 +467,7 @@ class TestModelEndpoint:
             data={"json_schema": SCHEMA, "instructions": ""},
         )
         assert response.status_code == 400
-        assert "qwen.qwen3-vl-235b-a22b" in response.json()["detail"]
+        assert "qwen.qwen3-vl-235b-a22b-instruct" in response.json()["detail"]
 
 
 class TestProviderNotConfigured:
@@ -517,7 +517,7 @@ class TestBuildCode:
             "invoice.pdf",
             {
                 "provider": "bedrock",
-                "model": "qwen.qwen3-vl-235b-a22b",
+                "model": "qwen.qwen3-vl-235b-a22b-instruct",
                 "endpoint": "https://bedrock-mantle.us-east-1.api.aws/v1",
             },
             include_confidence=True,
@@ -550,7 +550,7 @@ class TestBuildCode:
             "invoice.pdf",
             {
                 "provider": "bedrock",
-                "model": "qwen.qwen3-vl-235b-a22b",
+                "model": "qwen.qwen3-vl-235b-a22b-instruct",
                 "endpoint": "https://bedrock-mantle.us-east-1.api.aws/v1",
             },
             include_confidence=True,
@@ -582,7 +582,7 @@ class TestBuildCode:
             "invoice.pdf",
             {
                 "provider": "bedrock",
-                "model": "qwen.qwen3-vl-235b-a22b",
+                "model": "qwen.qwen3-vl-235b-a22b-instruct",
                 "endpoint": "https://bedrock-mantle.us-east-1.api.aws/v1",
             },
             include_confidence=True,
@@ -633,7 +633,7 @@ class TestAvailableProviders:
 
         bedrock = next(p for p in available_providers() if p["id"] == "bedrock")
         ids = {m["id"] for m in bedrock["models"]}
-        assert ids == {"qwen.qwen3-vl-235b-a22b", "amazon.nova-pro-v1:0"}
+        assert ids == {"qwen.qwen3-vl-235b-a22b-instruct", "google.gemma-3-27b-it"}
         labels = {m["label"] for m in bedrock["models"]}
         assert "Qwen3-VL 235B" in labels
         # The models are not multimodal on this path — no image ever reaches the

@@ -36,8 +36,11 @@ _DEFAULT_MODELS = {
     # grounded citations, 2026-08-04.
     "anthropic": os.environ.get("ANTHROPIC_STRUCTURED_MODEL", "claude-sonnet-5"),
     # Bedrock model ids are not recognised by the SDK, which is why requests on this
-    # path carry logprobs/top_logprobs. Confirm ids against the live catalogue.
-    "bedrock": os.environ.get("BEDROCK_STRUCTURED_MODEL", "qwen.qwen3-vl-235b-a22b"),
+    # path carry logprobs/top_logprobs. Ids verified live against the real
+    # Bedrock catalogue 2026-08-04: see the comment on _ALLOWED_MODELS below.
+    "bedrock": os.environ.get(
+        "BEDROCK_STRUCTURED_MODEL", "qwen.qwen3-vl-235b-a22b-instruct"
+    ),
 }
 _FALLBACK_MODEL = "gpt-5.4"
 
@@ -63,17 +66,26 @@ _PROVIDER_ALIASES = {"claude": "anthropic"}
 # Two reasons this is an allowlist rather than a pass-through: a caller-supplied
 # model combined with a configurable endpoint would turn /structured into a
 # general-purpose proxy, and silently ignoring an unknown model would let someone
-# select "Nova Pro" in the UI and watch Qwen run.
+# select "Gemma 3 27B" in the UI and watch Qwen run.
 #
-# Ids are PROVISIONAL until confirmed against the live Bedrock catalogue.
+# Ids verified live against the real Bedrock catalogue 2026-08-04
+# (https://bedrock-mantle.us-east-1.api.aws/v1). Notes from that verification:
+# - There are no amazon.nova-* models on this endpoint at all (GET /v1/models
+#   returned 55 models, zero of them Nova) — the id previously here
+#   (amazon.nova-pro-v1:0) does not exist and was replaced with Gemma.
+# - GET /v1/models lists more than /v1/chat/completions accepts: e.g.
+#   google.gemma-4-31b and anthropic.claude-sonnet-5 both appear in the
+#   catalogue but are rejected on the chat-completions route. Catalogue
+#   membership does not imply usability — only these two ids were confirmed
+#   to actually work end to end.
 _ALLOWED_MODELS: dict[str, set[str]] = {
-    "bedrock": {"qwen.qwen3-vl-235b-a22b", "amazon.nova-pro-v1:0"},
+    "bedrock": {"qwen.qwen3-vl-235b-a22b-instruct", "google.gemma-3-27b-it"},
 }
 
 # Human labels for the UI, so the model list has one source of truth.
 _MODEL_LABELS: dict[str, str] = {
-    "qwen.qwen3-vl-235b-a22b": "Qwen3-VL 235B",
-    "amazon.nova-pro-v1:0": "Nova Pro",
+    "qwen.qwen3-vl-235b-a22b-instruct": "Qwen3-VL 235B",
+    "google.gemma-3-27b-it": "Gemma 3 27B",
 }
 
 
