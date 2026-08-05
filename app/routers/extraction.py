@@ -13,9 +13,22 @@ from app.services.extraction import (
     parse_field_names,
     LocalVlmUnavailable,
 )
-from app.services.structured import Envelope, extract_structured
+from app.services.structured import (
+    Envelope,
+    ProviderNotConfigured,
+    UnsupportedModel,
+    available_providers,
+    extract_structured,
+)
 
 router = APIRouter(prefix="/api/extraction")
+
+
+@router.get("/providers")
+async def providers():
+    """Which providers this deployment can serve. The studio builds its dropdown
+    from this so it never offers an option that would fail."""
+    return {"providers": available_providers()}
 
 
 @router.post("/ocr")
@@ -107,9 +120,18 @@ async def structured(
     provider: str = Query(
         "openai",
         description=(
-            "Provider: 'openai', 'azure', 'anthropic' (alias 'claude') or 'local'. "
-            "Anthropic requires the schema's object to set additionalProperties "
-            "to false, or its API rejects the request with a 400."
+            "Provider: 'openai', 'azure', 'anthropic' (alias 'claude'), 'bedrock' "
+            "or 'local'. Anthropic requires the schema's object to set "
+            "additionalProperties to false, or its API rejects the request with "
+            "a 400. See GET /api/extraction/providers for which are configured "
+            "on this deployment."
+        ),
+    ),
+    model: str | None = Query(
+        None,
+        description=(
+            "Optional model id. Only providers with a published model list accept "
+            "this; see GET /api/extraction/providers. Rejected with 400 otherwise."
         ),
     ),
     includeConfidence: bool = Query(True),
@@ -144,11 +166,16 @@ async def structured(
             json_schema,
             instructions=instructions,
             provider=provider,
+            model=model,
             include_confidence=includeConfidence,
             include_source_locations=includeSourceLocations,
             include_page_images=includePageImages,
             strict=strict,
         )
+    except UnsupportedModel as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ProviderNotConfigured as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
