@@ -361,12 +361,14 @@ class TestApplyProvider:
 
     def test_bedrock_carries_an_explicit_model(self, monkeypatch):
         # Same trap as anthropic: the flat path has no default model, and omitting
-        # it fails with "AiProcessing model is required".
+        # it fails with "AiProcessing model is required". Asserting the concrete id
+        # rather than truthiness, so removing the _DEFAULT_MODELS entry fails here —
+        # `assert ai.model` alone passes for every provider via the fallback.
         monkeypatch.setenv("BEDROCK_API_KEY", "k")
         ai = _FakeAiSettings()
         echo = apply_provider(ai, "bedrock")
-        assert ai.model, "bedrock must carry an explicit model"
-        assert echo["model"] == ai.model
+        assert ai.model == "qwen.qwen3-vl-235b-a22b"
+        assert echo["model"] == "qwen.qwen3-vl-235b-a22b"
 
 
 class TestBuildCode:
