@@ -35,6 +35,9 @@ _DEFAULT_MODELS = {
     # claude-sonnet-5 verified working against extract_structured(), including
     # grounded citations, 2026-08-04.
     "anthropic": os.environ.get("ANTHROPIC_STRUCTURED_MODEL", "claude-sonnet-5"),
+    # Bedrock model ids are not recognised by the SDK, which is why requests on this
+    # path carry logprobs/top_logprobs. Confirm ids against the live catalogue.
+    "bedrock": os.environ.get("BEDROCK_STRUCTURED_MODEL", "qwen.qwen3-vl-235b-a22b"),
 }
 _FALLBACK_MODEL = "gpt-5.4"
 
@@ -142,6 +145,19 @@ def apply_provider(ai, provider: str) -> dict:
         # and NO api_key, i.e. an OpenAI model id sent to Anthropic with no
         # credentials — a confusing failure rather than an honest one.
         ai.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    elif provider == "bedrock":
+        # Bedrock's OpenAI-compatible surface. ai.provider becomes "openai" because
+        # the SDK rejects every other value on this path; only the endpoint and key
+        # differ. The trailing /v1 is REQUIRED — the SDK appends "/chat/completions"
+        # verbatim. Bearer auth replaces SigV4 entirely, so AWS_ACCESS_KEY_ID and
+        # AWS_SECRET_ACCESS_KEY are not used here.
+        ai.provider = "openai"
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        ai.endpoint = os.environ.get(
+            "BEDROCK_ENDPOINT", f"https://bedrock-mantle.{region}.api.aws/v1"
+        )
+        ai.api_key = os.environ.get("BEDROCK_API_KEY", "")
+        echo["endpoint"] = ai.endpoint
     elif provider == "local":
         ai.endpoint = os.environ.get("LM_STUDIO_API_URL", "http://localhost:1234/v1")
         echo["endpoint"] = ai.endpoint
@@ -193,17 +209,32 @@ def parse_structured(raw_json: str, filename: str) -> StructuredData:
 def _build_code(filename: str, echo: dict, *, include_confidence: bool,
                 include_source_locations: bool) -> str:
     """The snippet the UI shows as 'how you'd do this yourself'."""
+    # The echo names the provider the USER chose; the SDK needs the one it accepts.
+    # For Bedrock those differ, and printing "bedrock" would hand out a snippet
+    # that cannot run.
+    wire_provider = "openai" if echo["provider"] == "bedrock" else echo["provider"]
+    bedrock_note = (
+        "    # Bedrock speaks the OpenAI chat-completions API, so the provider is\n"
+        '    # "openai" and the endpoint points at Bedrock. The trailing /v1 matters.\n'
+        if echo["provider"] == "bedrock"
+        else ""
+    )
+    endpoint_line = (
+        f'    ai.endpoint = "{echo["endpoint"]}"\n' if "endpoint" in echo else ""
+    )
     return (
         "from nutrient_sdk import Document, StructuredExtractionRequest, Vision\n\n"
         f'with Document.open("{filename}") as document:\n'
         "    ai = document.settings.ai_processing_settings\n"
-        f'    ai.provider = "{echo["provider"]}"\n'
-        f'    ai.model = "{echo["model"]}"\n'
-        f"    ai.include_confidence = {include_confidence}\n"
-        f"    ai.include_source_locations = {include_source_locations}\n"
-        "    request = StructuredExtractionRequest()\n"
-        "    request.schema = SCHEMA\n"
-        "    result = Vision.set(document).extract_structured(request)\n"
+        + bedrock_note
+        + f'    ai.provider = "{wire_provider}"\n'
+        + endpoint_line
+        + f'    ai.model = "{echo["model"]}"\n'
+        + f"    ai.include_confidence = {include_confidence}\n"
+        + f"    ai.include_source_locations = {include_source_locations}\n"
+        + "    request = StructuredExtractionRequest()\n"
+        + "    request.schema = SCHEMA\n"
+        + "    result = Vision.set(document).extract_structured(request)\n"
     )
 
 

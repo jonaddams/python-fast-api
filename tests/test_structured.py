@@ -315,3 +315,88 @@ class TestApplyProvider:
         echo = apply_provider(ai, "gemini")
         assert echo["provider"] == "gemini"
         assert echo["model"] == "gpt-5.4"
+
+    def test_bedrock_uses_the_openai_provider_string(self, monkeypatch):
+        # The SDK rejects every provider value but "openai" on this path — verified
+        # 2026-08-05: "azure" errors with "Use 'openai' (optionally with an
+        # OpenAI-compatible endpoint)". So the wire provider is openai while the
+        # echo still names bedrock, which is what the user chose.
+        monkeypatch.setenv("BEDROCK_API_KEY", "test-bedrock-key")
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "bedrock")
+        assert ai.provider == "openai"
+        assert echo["provider"] == "bedrock"
+
+    def test_bedrock_endpoint_ends_in_v1(self, monkeypatch):
+        # The SDK appends "/chat/completions" verbatim. Without the /v1 suffix the
+        # request goes to /chat/completions and 404s.
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "bedrock")
+        assert ai.endpoint == "https://bedrock-mantle.eu-west-1.api.aws/v1"
+        assert echo["endpoint"] == ai.endpoint
+
+    def test_bedrock_endpoint_is_overridable(self, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        monkeypatch.setenv("BEDROCK_ENDPOINT", "https://example.invalid/v1")
+        ai = _FakeAiSettings()
+        assert apply_provider(ai, "bedrock")["endpoint"] == "https://example.invalid/v1"
+
+    def test_bedrock_sends_the_bedrock_key(self, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "test-bedrock-key")
+        ai = _FakeAiSettings()
+        apply_provider(ai, "bedrock")
+        assert ai.api_key == "test-bedrock-key"
+
+    def test_bedrock_region_defaults_to_us_east_1(self, monkeypatch):
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("BEDROCK_ENDPOINT", raising=False)
+        ai = _FakeAiSettings()
+        assert apply_provider(ai, "bedrock")["endpoint"] == (
+            "https://bedrock-mantle.us-east-1.api.aws/v1"
+        )
+
+    def test_bedrock_carries_an_explicit_model(self, monkeypatch):
+        # Same trap as anthropic: the flat path has no default model, and omitting
+        # it fails with "AiProcessing model is required".
+        monkeypatch.setenv("BEDROCK_API_KEY", "k")
+        ai = _FakeAiSettings()
+        echo = apply_provider(ai, "bedrock")
+        assert ai.model, "bedrock must carry an explicit model"
+        assert echo["model"] == ai.model
+
+
+class TestBuildCode:
+    def test_bedrock_snippet_uses_openai_and_shows_the_endpoint(self):
+        from app.services.structured import _build_code
+
+        code = _build_code(
+            "invoice.pdf",
+            {
+                "provider": "bedrock",
+                "model": "qwen.qwen3-vl-235b-a22b",
+                "endpoint": "https://bedrock-mantle.us-east-1.api.aws/v1",
+            },
+            include_confidence=True,
+            include_source_locations=True,
+        )
+        # "bedrock" is not a value the SDK accepts; a copied snippet must run.
+        assert 'ai.provider = "openai"' in code
+        assert 'ai.provider = "bedrock"' not in code
+        assert 'ai.endpoint = "https://bedrock-mantle.us-east-1.api.aws/v1"' in code
+        assert "Bedrock speaks the OpenAI chat-completions API" in code
+
+    def test_openai_snippet_has_no_endpoint_line(self):
+        from app.services.structured import _build_code
+
+        code = _build_code(
+            "invoice.pdf",
+            {"provider": "openai", "model": "gpt-5.4"},
+            include_confidence=True,
+            include_source_locations=True,
+        )
+        assert 'ai.provider = "openai"' in code
+        assert "ai.endpoint" not in code
