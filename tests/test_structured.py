@@ -390,7 +390,10 @@ class TestDefaultModelAllowlistInvariant:
             "_DEFAULT_MODELS",
             {**structured._DEFAULT_MODELS, "bedrock": "not-a-real-model"},
         )
-        with pytest.raises(AssertionError, match="not-a-real-model"):
+        # RuntimeError, not AssertionError: the guard was converted on 2026-08-06
+        # because `python -O` strips assert statements, which would have removed
+        # it silently in an optimised deployment.
+        with pytest.raises(RuntimeError, match="not-a-real-model"):
             structured._validate_default_models()
 
     def test_the_current_configuration_satisfies_the_invariant(self):
@@ -509,6 +512,54 @@ class TestProviderNotConfigured:
         assert "BEDROCK_API_KEY" in response.json()["detail"]
 
 
+class TestStructuredResiduals:
+    """Three residuals the Bedrock review flagged and deliberately deferred."""
+
+    def test_a_whitespace_only_key_does_not_list_the_provider(self, monkeypatch):
+        # The asymmetry this closes: available_providers() read the var raw while
+        # validate_provider_and_model() stripped it, so a key of spaces listed
+        # Bedrock in the dropdown and then 400'd the moment Run was pressed.
+        for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "BEDROCK_API_KEY",
+                     "LM_STUDIO_API_URL"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("BEDROCK_API_KEY", "   ")
+        from app.services.structured import available_providers
+
+        assert [p["id"] for p in available_providers()] == []
+
+    def test_listing_and_validation_agree_on_a_whitespace_only_key(self, monkeypatch):
+        # Same input, two code paths, one answer — which is the actual invariant.
+        for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "BEDROCK_API_KEY",
+                     "LM_STUDIO_API_URL"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("BEDROCK_API_KEY", " \t ")
+        from app.services.structured import (
+            ProviderNotConfigured,
+            available_providers,
+            validate_provider_and_model,
+        )
+
+        listed = "bedrock" in [p["id"] for p in available_providers()]
+        try:
+            validate_provider_and_model("bedrock", None)
+            validates = True
+        except ProviderNotConfigured:
+            validates = False
+        assert listed is validates is False
+
+    def test_the_default_model_guard_survives_python_dash_O(self):
+        # It used to be `assert`, which python -O strips — removing the guard in
+        # exactly the deployment most likely to run optimised. A raise cannot be
+        # stripped, so the guard has to be a real conditional.
+        import inspect
+
+        from app.services.structured import _validate_default_models
+
+        src = inspect.getsource(_validate_default_models)
+        assert "raise RuntimeError" in src
+        assert "assert " not in src
+
+
 class TestBuildCode:
     def test_bedrock_snippet_uses_openai_and_shows_the_endpoint(self):
         from app.services.structured import _build_code
@@ -528,6 +579,56 @@ class TestBuildCode:
         assert 'ai.provider = "bedrock"' not in code
         assert 'ai.endpoint = "https://bedrock-mantle.us-east-1.api.aws/v1"' in code
         assert "Bedrock speaks the OpenAI chat-completions API" in code
+
+    def test_the_snippet_defines_schema_and_is_valid_python(self):
+        # It used to end with `request.schema = SCHEMA` against a name nothing
+        # assigned, so a prospect who copied it verbatim got a NameError — in the
+        # one artefact whose whole purpose is being copied verbatim.
+        from app.services.structured import _build_code
+
+        schema = json.dumps(
+            {"schema": {"type": "object", "properties": {"invoiceNumber": {"type": "string"}}}}
+        )
+        code = _build_code(
+            "invoice.pdf",
+            {"provider": "openai", "model": "gpt-5.4"},
+            include_confidence=True,
+            include_source_locations=True,
+            schema=schema,
+        )
+        assert "SCHEMA = " in code
+        assert "invoiceNumber" in code
+        # the strongest form of "runnable as printed" we can assert cheaply
+        compile(code, "<snippet>", "exec")
+
+    def test_the_snippet_is_valid_python_even_with_no_schema(self):
+        # Callers that pass nothing get an honest placeholder, never a dangling
+        # reference.
+        from app.services.structured import _build_code
+
+        code = _build_code(
+            "invoice.pdf",
+            {"provider": "openai", "model": "gpt-5.4"},
+            include_confidence=True,
+            include_source_locations=True,
+        )
+        assert "SCHEMA = " in code
+        compile(code, "<snippet>", "exec")
+
+    def test_the_snippet_survives_a_schema_containing_a_triple_quote(self):
+        # Valid JSON escapes its quotes, so this is defensive — but the snippet is
+        # built by string concatenation, and a triple quote is the one sequence
+        # that would silently terminate the literal early.
+        from app.services.structured import _build_code
+
+        code = _build_code(
+            "invoice.pdf",
+            {"provider": "openai", "model": "gpt-5.4"},
+            include_confidence=True,
+            include_source_locations=True,
+            schema='{"schema": {"d": "a """ b"}}',
+        )
+        compile(code, "<snippet>", "exec")
 
     def test_openai_snippet_has_no_endpoint_line(self):
         from app.services.structured import _build_code
