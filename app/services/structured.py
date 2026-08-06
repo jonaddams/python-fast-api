@@ -104,12 +104,16 @@ def _validate_default_models() -> None:
     """
     for provider, allowed in _ALLOWED_MODELS.items():
         default = _DEFAULT_MODELS.get(provider)
-        assert default in allowed, (
-            f"{provider}'s default model {default!r} is not in its own "
-            f"allowlist {sorted(allowed)}. Point the "
-            f"{provider.upper()}_STRUCTURED_MODEL env var at one of those, or "
-            "add the id to _ALLOWED_MODELS."
-        )
+        # raise, not assert: `python -O` / PYTHONOPTIMIZE strips assert
+        # statements, which would silently remove this guard in exactly the
+        # deployment most likely to run optimised.
+        if default not in allowed:
+            raise RuntimeError(
+                f"{provider}'s default model {default!r} is not in its own "
+                f"allowlist {sorted(allowed)}. Point the "
+                f"{provider.upper()}_STRUCTURED_MODEL env var at one of those, or "
+                "add the id to _ALLOWED_MODELS."
+            )
 
 
 _validate_default_models()
@@ -296,7 +300,11 @@ def available_providers() -> list[dict]:
     """
     providers: list[dict] = []
     for provider_id, label, env_var in _PROVIDER_REGISTRY:
-        if not os.environ.get(env_var):
+        # .strip() for PARITY with validate_provider_and_model(), which strips
+        # before deciding a provider is configured. Without it a whitespace-only
+        # key listed the provider here and then 400'd on Run — the dropdown and
+        # the request disagreeing about the same env var.
+        if not os.environ.get(env_var, "").strip():
             continue
         models = sorted(_ALLOWED_MODELS.get(provider_id, set()))
         providers.append(
@@ -355,8 +363,15 @@ def parse_structured(raw_json: str, filename: str) -> StructuredData:
 
 
 def _build_code(filename: str, echo: dict, *, include_confidence: bool,
-                include_source_locations: bool) -> str:
-    """The snippet the UI shows as 'how you'd do this yourself'."""
+                include_source_locations: bool, schema: str = "") -> str:
+    """The snippet the UI shows as 'how you'd do this yourself'.
+
+    `schema` is embedded so the snippet actually runs. It used to end with
+    `request.schema = SCHEMA` against an undefined name, so "runnable as printed"
+    held only if the reader noticed and supplied one — in a snippet whose whole
+    purpose is being copied verbatim. Defaulted to "" so existing callers and
+    tests that do not care about the schema keep working.
+    """
     # The echo names the provider the USER chose; the SDK needs the one it accepts.
     # For Bedrock those differ, and printing "bedrock" would hand out a snippet
     # that cannot run.
@@ -378,10 +393,34 @@ def _build_code(filename: str, echo: dict, *, include_confidence: bool,
     key_env = _API_KEY_ENV.get(echo["provider"])
     key_line = f'    ai.api_key = os.environ["{key_env}"]\n' if key_env else ""
     import_line = "import os\n" if key_env else ""
+    # The outer {"schema": {...}} envelope the SDK requires is already part of
+    # what the caller sent, so embedding it verbatim keeps the snippet correct.
+    # A bare JSON Schema here would earn InvalidArgumentException 3016.
+    # The snippet ALWAYS defines SCHEMA. It used to end with
+    # `request.schema = SCHEMA` against a name nothing assigned, so a prospect
+    # who copied it verbatim — the entire point of the snippet — got a
+    # NameError. Callers that pass no schema get an honest placeholder rather
+    # than a dangling reference.
+    #
+    # Triple-quoted for readability, since an escaped one-liner is noise in
+    # something meant to be read. Valid JSON cannot contain three BARE quotes
+    # (they arrive escaped as \\") so the else branch is effectively always
+    # taken; the json.dumps fallback is belt-and-braces for a hand-built
+    # schema that never passed through JSON.stringify.
+    if not schema:
+        schema_block = (
+            'SCHEMA = \'{"schema": {"type": "object", "properties": {}}}\''
+            "  # your schema, in the envelope the SDK requires\n\n"
+        )
+    elif '"""' in schema:
+        schema_block = f"SCHEMA = {json.dumps(schema)}\n\n"
+    else:
+        schema_block = f'SCHEMA = """{schema}"""\n\n'
     return (
         import_line
         + "from nutrient_sdk import Document, StructuredExtractionRequest, Vision\n\n"
-        f'with Document.open("{filename}") as document:\n'
+        + schema_block
+        + f'with Document.open("{filename}") as document:\n'
         "    ai = document.settings.ai_processing_settings\n"
         + bedrock_note
         + f'    ai.provider = "{wire_provider}"\n'
@@ -445,5 +484,6 @@ def extract_structured(
             echo,
             include_confidence=include_confidence,
             include_source_locations=include_source_locations,
+            schema=schema,
         ),
     )

@@ -172,9 +172,10 @@ async def structured(
             include_page_images=includePageImages,
             strict=strict,
         )
-    except UnsupportedModel as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except ProviderNotConfigured as e:
+    # One clause: both are caller errors about the provider/model pair and both
+    # map to the same 400 with the same detail. Two identical handlers invited
+    # them to drift apart.
+    except (UnsupportedModel, ProviderNotConfigured) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
