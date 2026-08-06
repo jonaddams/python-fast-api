@@ -177,8 +177,48 @@ def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]
         yield paths[0]
 
 
-def extract_text_ocr(image_bytes: bytes, original_filename: str) -> dict:
-    return _extract_with_engine(image_bytes, original_filename, "OCR")
+def extract_text_ocr(
+    image_bytes: bytes,
+    original_filename: str,
+    *,
+    languages: str = "eng",
+    table_detection: bool = True,
+    output_format: str = "json",
+) -> dict:
+    """Adaptive OCR. Runs entirely locally — no provider, no API key, no network."""
+    import time
+
+    from app.services.ocr_options import validate_ocr_options
+
+    echo = validate_ocr_options(languages, output_format)
+    start = time.perf_counter()
+    if echo["outputFormat"] == "markdown":
+        md, total_pages, processed_pages = _run_with_prerender(
+            image_bytes,
+            original_filename,
+            "OCR",
+            output_format=VisionOutputFormat.MARKDOWN,
+            languages=languages,
+            table_detection=table_detection,
+        )
+        result: dict = {
+            "engine": "ADAPTIVE_OCR",
+            "filename": original_filename,
+            "markdown": md,
+            "totalPages": total_pages,
+            "processedPages": processed_pages,
+        }
+    else:
+        result = _extract_with_engine(
+            image_bytes,
+            original_filename,
+            "OCR",
+            languages=languages,
+            table_detection=table_detection,
+        )
+    result["config"] = {**echo, "tableDetection": table_detection}
+    result["timingMs"] = int((time.perf_counter() - start) * 1000)
+    return result
 
 
 def extract_text_icr(image_bytes: bytes, original_filename: str) -> dict:
@@ -422,6 +462,8 @@ def _run_with_prerender(
     features: int | None = None,
     output_format: VisionOutputFormat | None = None,
     max_pages: int | None = None,
+    languages: str | None = None,
+    table_detection: bool | None = None,
 ) -> tuple[dict | str, int, int]:
     """Pre-render if needed, run Vision once per page, merge.
 
@@ -447,6 +489,8 @@ def _run_with_prerender(
                         provider=provider,
                         features=features,
                         output_format=output_format,
+                        languages=languages,
+                        table_detection=table_detection,
                     )
                 )
             except (LocalVlmUnavailable, ValueError):
@@ -464,9 +508,16 @@ def _extract_with_engine(
     engine: str,
     *,
     provider: str | None = None,
+    languages: str | None = None,
+    table_detection: bool | None = None,
 ) -> dict:
     merged, total_pages, processed_pages = _run_with_prerender(
-        image_bytes, original_filename, engine, provider=provider
+        image_bytes,
+        original_filename,
+        engine,
+        provider=provider,
+        languages=languages,
+        table_detection=table_detection,
     )
     result = _format_extraction_result(merged, original_filename, engine)
     result["totalPages"] = total_pages
@@ -481,6 +532,8 @@ def _run_vision(
     provider: str | None = None,
     features: int | None = None,
     output_format: VisionOutputFormat | None = None,
+    languages: str | None = None,
+    table_detection: bool | None = None,
 ) -> str:
     with Document.open(path) as doc:
         s = doc.get_settings()
@@ -494,6 +547,15 @@ def _run_vision(
         vs.set_features(features if features is not None else _LICENSED_VISION_FEATURES)
         if output_format is not None:
             vs.set_output_format(output_format)
+
+        # Only these two OCR settings measurably change the output. favor_accuracy,
+        # enable_preprocessing, enable_skew_detection and the words-detection
+        # confidence threshold were all byte-identical on two documents on
+        # 2026-08-06 — do not add controls for them.
+        if languages is not None:
+            s.get_ocr_settings().set_default_languages(languages)
+        if table_detection is not None:
+            s.get_ocr_settings().set_enable_table_detection(table_detection)
 
         if provider:
             from nutrient_sdk.vlmprovider import VlmProvider

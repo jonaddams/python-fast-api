@@ -13,6 +13,7 @@ from app.services.extraction import (
     parse_field_names,
     LocalVlmUnavailable,
 )
+from app.services.ocr_options import UnsupportedOcrOption
 from app.services.structured import (
     Envelope,
     ProviderNotConfigured,
@@ -32,10 +33,28 @@ async def providers():
 
 
 @router.post("/ocr")
-async def ocr(file: UploadFile = File(...)):
+async def ocr(
+    file: UploadFile = File(...),
+    languages: str = Form(
+        "eng",
+        description="One or more codes joined with '+', e.g. 'eng' or 'eng+deu'. "
+        "A comma or space makes the SDK return an EMPTY document, so anything "
+        "outside the allowlist is rejected here with a 400.",
+    ),
+    table_detection: bool = Form(True, description="Detect tables as structured elements."),
+    output_format: str = Form("json", description="'json' (elements) or 'markdown'."),
+):
     try:
         data = await file.read()
-        return extract_text_ocr(data, file.filename or "input")
+        return extract_text_ocr(
+            data,
+            file.filename or "input",
+            languages=languages,
+            table_detection=table_detection,
+            output_format=output_format,
+        )
+    except UnsupportedOcrOption as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
