@@ -15,6 +15,62 @@ def test_ocr_endpoint_returns_text(client: TestClient, sample_image_bytes: bytes
     assert len(body["fullText"]) > 0
 
 
+def test_ocr_endpoint_markdown_key_set_matches_json(
+    client: TestClient, sample_image_bytes: bytes, sample_image_name: str
+):
+    # THE regression this guards: the markdown branch used to return only
+    # [config, engine, filename, markdown, processedPages, timingMs,
+    # totalPages], omitting statistics/textElements/fullText/pages/rawElements
+    # entirely. The frontend's OcrResults reads those unconditionally, so a
+    # markdown run blanked the whole results panel. Both branches must return
+    # the same key set, with empty values on the markdown side.
+    json_response = client.post(
+        "/api/extraction/ocr",
+        files={"file": (sample_image_name, sample_image_bytes, "image/png")},
+        data={"output_format": "json"},
+    )
+    markdown_response = client.post(
+        "/api/extraction/ocr",
+        files={"file": (sample_image_name, sample_image_bytes, "image/png")},
+        data={"output_format": "markdown"},
+    )
+    assert json_response.status_code == 200, json_response.text
+    assert markdown_response.status_code == 200, markdown_response.text
+    json_keys = set(json_response.json().keys())
+    markdown_keys = set(markdown_response.json().keys())
+    assert markdown_keys == json_keys
+
+    markdown_body = markdown_response.json()
+    assert markdown_body["engine"] == "OCR"
+    assert markdown_body["statistics"] == {
+        "totalElements": 0,
+        "textElements": 0,
+        "averageConfidence": 0,
+        "lowConfidenceElements": 0,
+    }
+    assert markdown_body["textElements"] == []
+    assert markdown_body["fullText"] == ""
+    assert markdown_body["pages"] == []
+    assert len(markdown_body["markdown"]) > 0
+
+
+def test_ocr_endpoint_maps_unsupported_language_to_400(
+    client: TestClient, sample_image_bytes: bytes, sample_image_name: str
+):
+    # Guards the exception-handler order in the /ocr route: UnsupportedOcrOption
+    # must be caught before the generic Exception clause, or the allowlist's
+    # whole point — a 400 naming the offending code — silently degrades to a
+    # 500 with every other test still green. validate_ocr_options runs before
+    # any Vision call, so this makes no API calls and stays fast.
+    response = client.post(
+        "/api/extraction/ocr",
+        files={"file": (sample_image_name, sample_image_bytes, "image/png")},
+        data={"languages": "eng,deu"},
+    )
+    assert response.status_code == 400, response.text
+    assert "eng,deu" in response.json()["detail"]
+
+
 def test_icr_endpoint_returns_text(client: TestClient, sample_image_bytes: bytes, sample_image_name: str):
     response = client.post(
         "/api/extraction/icr",

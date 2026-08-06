@@ -185,7 +185,17 @@ def extract_text_ocr(
     table_detection: bool = True,
     output_format: str = "json",
 ) -> dict:
-    """Adaptive OCR. Runs entirely locally — no provider, no API key, no network."""
+    """Adaptive OCR. Runs entirely locally — no provider, no API key, no network.
+
+    Returns the SAME key set regardless of output_format. The markdown branch
+    used to omit statistics/textElements/fullText/pages/rawElements entirely,
+    which crashed the studio's results panel (it reads
+    result.textElements.length unconditionally) — /structured never does this;
+    it always returns a complete Envelope regardless of options, and this
+    follows that model. `engine` is "OCR" on both branches too: the markdown
+    branch used to say "ADAPTIVE_OCR", but tests/test_extraction.py pins "OCR"
+    for this endpoint.
+    """
     import time
 
     from app.services.ocr_options import validate_ocr_options
@@ -202,8 +212,18 @@ def extract_text_ocr(
             table_detection=table_detection,
         )
         result: dict = {
-            "engine": "ADAPTIVE_OCR",
+            "engine": "OCR",
             "filename": original_filename,
+            "statistics": {
+                "totalElements": 0,
+                "textElements": 0,
+                "averageConfidence": 0,
+                "lowConfidenceElements": 0,
+            },
+            "fullText": "",
+            "textElements": [],
+            "rawElements": [],
+            "pages": [],
             "markdown": md,
             "totalPages": total_pages,
             "processedPages": processed_pages,
@@ -216,6 +236,7 @@ def extract_text_ocr(
             languages=languages,
             table_detection=table_detection,
         )
+        result["markdown"] = ""
     result["config"] = {**echo, "tableDetection": table_detection}
     result["timingMs"] = int((time.perf_counter() - start) * 1000)
     return result
