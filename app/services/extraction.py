@@ -16,6 +16,8 @@ from nutrient_sdk import (
     DescriptionLevel,
 )
 
+from app.services.geometry import normalize_bbox
+
 
 class LocalVlmUnavailable(RuntimeError):
     """Raised when VLM_ENHANCED_ICR cannot reach its local model server."""
@@ -65,16 +67,28 @@ def merge_element_pages(raw_jsons: list[str]) -> dict:
     interleave pages.
     """
     merged: list[dict] = []
+    pages: list[dict] = []
     next_order = 0
     for page_idx, raw in enumerate(raw_jsons, start=1):
-        elements = json.loads(raw).get("elements", [])
+        payload = json.loads(raw)
+
+        # Page dimensions travel in a top-level `metadata` array. They are the
+        # only way to convert raster-pixel bounds into the fractional citation
+        # coords the viewer draws, so they must survive the merge. Each
+        # per-page call reports pageNumber=1, so the index is authoritative.
+        for meta in payload.get("metadata", []) or []:
+            width, height = meta.get("width"), meta.get("height")
+            if width and height:
+                pages.append({"page": page_idx, "width": width, "height": height})
+
+        elements = payload.get("elements", [])
         elements.sort(key=lambda e: e.get("readingOrder", 0))
         for el in elements:
             el["pageNumber"] = page_idx
             el["readingOrder"] = next_order
             next_order += 1
             merged.append(el)
-    return {"elements": merged}
+    return {"elements": merged, "pages": pages}
 
 
 def merge_markdown_pages(texts: list[str]) -> str:
@@ -508,6 +522,8 @@ def _run_vision(
 
 def _format_extraction_result(merged: dict, filename: str, engine: str) -> dict:
     elements = merged.get("elements", [])
+    pages = merged.get("pages", []) or []
+    page_dims = {p["page"]: (p["width"], p["height"]) for p in pages}
 
     elements.sort(key=lambda e: e.get("readingOrder", 0))
 
@@ -544,6 +560,17 @@ def _format_extraction_result(merged: dict, filename: str, engine: str) -> dict:
                 for w in words
             ]
 
+        # 0-based page and a fractional citation, matching exactly what
+        # /structured returns — that is what lets the studio's existing overlay
+        # draw OCR regions with no new drawing code.
+        page_1 = element.get("pageNumber")
+        summary["page"] = (page_1 - 1) if isinstance(page_1, int) else None
+        bounds = element.get("bounds")
+        citation = None
+        if bounds and page_1 in page_dims:
+            w, h = page_dims[page_1]
+            citation = {"page": summary["page"], **normalize_bbox(bounds, w, h)}
+        summary["citation"] = citation
         summary["bounds"] = element.get("bounds")
         text_elements.append(summary)
         full_text_parts.append(f"[{reading_order}] {text}")
@@ -564,4 +591,5 @@ def _format_extraction_result(merged: dict, filename: str, engine: str) -> dict:
         "fullText": "\n".join(full_text_parts),
         "textElements": text_elements,
         "rawElements": elements,
+        "pages": pages,
     }
