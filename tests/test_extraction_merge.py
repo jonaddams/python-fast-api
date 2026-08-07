@@ -62,4 +62,7 @@ def test_merge_markdown_single_page_has_no_separator():
 
 
 def test_merge_empty_input_returns_empty_elements():
-    assert merge_element_pages([]) == {"elements": []}
+    # `pages` is part of the contract as of Task 2 (page dimensions for
+    # fractional citations) — merge_element_pages always returns both keys,
+    # even for empty input. Do not revert this to {"elements": []} only.
+    assert merge_element_pages([]) == {"elements": [], "pages": []}
