@@ -22,6 +22,8 @@ from typing import Any, Iterator
 
 from pydantic import BaseModel
 
+from app.services.geometry import normalize_bbox
+
 # Model defaults per provider. Overridable via env so a demo can point at
 # whatever is current without a code change.
 _DEFAULT_MODELS = {
@@ -165,27 +167,6 @@ class Envelope(BaseModel):
     data: dict[str, Any]
     raw: str
     code: str
-
-
-def _clamp01(v: float) -> float:
-    return max(0.0, min(1.0, v))
-
-
-def normalize_bbox(raw: dict, page_w: float, page_h: float) -> dict:
-    """Convert a raw SDK bbox {x, y, width, height} (raster pixels, origin
-    top-left; the 'unit' field is unreliable and ignored) to fractional page
-    coords in 0..1, where page_w/page_h are the raster px dims from the
-    extraction's top-level `pages[]` array."""
-    if page_w <= 0 or page_h <= 0:
-        raise ValueError("page dimensions must be positive")
-    x, y = float(raw["x"]), float(raw["y"])
-    right, bottom = x + float(raw["width"]), y + float(raw["height"])
-    return {
-        "x0": _clamp01(x / page_w),
-        "y0": _clamp01(y / page_h),
-        "x1": _clamp01(right / page_w),
-        "y1": _clamp01(bottom / page_h),
-    }
 
 
 @contextlib.contextmanager
