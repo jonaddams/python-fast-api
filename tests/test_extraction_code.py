@@ -90,9 +90,78 @@ class TestBuildOcrCode:
         # document is written to page.jpg with no suffix at all, so the glob
         # returns nothing and the snippet prints an empty list. The studio's
         # corpus is short scans, so the second is the likelier hit.
+        #
+        # Both traps stay pinned now that the pages live in a temp dir: the
+        # sort key is unchanged, and the fallback is `base` — the same
+        # os.path.join(pages_dir, "page.jpg") that export_as_image was handed,
+        # so it names the file that actually exists.
         code = _build_ocr_code("scan.pdf", JSON_ECHO, table_detection=True)
-        assert "int(re.search" in code
-        assert 'paths = paths or ["page.jpg"]' in code
+        assert 'key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1))' in code
+        assert 'base = os.path.join(pages_dir, "page.jpg")' in code
+        assert "paths = paths or [base]" in code
+
+    def test_the_snippet_writes_its_pages_to_a_temp_dir_not_the_cwd(self):
+        """Fixed CWD names OCR the wrong document, silently, on the second run.
+
+        A prospect runs the snippet on a 3-page PDF, then on a 1-page PDF in
+        the same directory. page-1..3.jpg are still on disk, so run 2's glob
+        returns them, `paths` is non-empty, the single-page fallback never
+        fires — and the snippet OCRs the PREVIOUS document while printing it
+        as the current one. Exit 0, no warning. Reproduced live on the old
+        snippet; trying a second document is the first thing a prospect does.
+
+        A private directory also keeps the glob away from any unrelated
+        page-cover.jpg, on which the numeric sort key raises AttributeError.
+        """
+        for echo in (JSON_ECHO, MARKDOWN_ECHO):
+            code = _build_ocr_code("scan.pdf", echo, table_detection=True)
+            assert "with tempfile.TemporaryDirectory() as pages_dir:" in code
+
+            # Structural, not string-matching: every path the snippet writes to
+            # or globs must be rooted in pages_dir. A bare literal would be a
+            # CWD write however the surrounding lines are worded.
+            rooted = []
+            for node in ast.walk(ast.parse(code)):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if not isinstance(func, ast.Attribute):
+                    continue
+                is_export = func.attr == "export_as_image"
+                is_glob = func.attr == "glob" and getattr(func.value, "id", "") == "glob"
+                if is_export or is_glob:
+                    rooted.append(ast.unparse(node.args[0]))
+            assert len(rooted) == 2, rooted
+            for target in rooted:
+                assert target == "base" or target.startswith(
+                    "os.path.join(pages_dir"
+                ), target
+
+    def test_every_page_is_read_before_the_temp_dir_closes(self):
+        # The JPEGs vanish when the TemporaryDirectory block exits, so the
+        # Vision loop has to be inside it. Hoisting the loop out for tidiness
+        # would leave a snippet that raises on its own generated paths.
+        for echo in (JSON_ECHO, MARKDOWN_ECHO):
+            code = _build_ocr_code("scan.pdf", echo, table_detection=True)
+            tree = ast.parse(code)
+            temp_dir_blocks = [
+                node
+                for node in tree.body
+                if isinstance(node, ast.With)
+                and "tempfile.TemporaryDirectory()" in ast.unparse(node.items[0].context_expr)
+            ]
+            assert len(temp_dir_blocks) == 1
+            body = ast.unparse(temp_dir_blocks[0])
+            assert "raws.append(Vision.set(page).extract_content())" in body
+
+    def test_the_stdlib_imports_are_one_per_line_and_accurate_per_branch(self):
+        # PEP 8, in code a customer pastes into their project. And json is only
+        # needed by the merge, which the markdown branch does not do.
+        js = _build_ocr_code("scan.pdf", JSON_ECHO, table_detection=True)
+        md = _build_ocr_code("scan.pdf", MARKDOWN_ECHO, table_detection=True)
+        assert js.startswith("import glob\nimport json\nimport os\nimport re\nimport tempfile\n")
+        assert md.startswith("import glob\nimport os\nimport re\nimport tempfile\n")
+        assert "import json" not in md
 
     def test_the_snippet_frames_the_prerender_as_capability_not_defect(self):
         # Prospect-facing material. Naming our own open SDK issues in it
