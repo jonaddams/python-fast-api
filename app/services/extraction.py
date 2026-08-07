@@ -177,6 +177,124 @@ def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]
         yield paths[0]
 
 
+def _build_ocr_code(filename: str, echo: dict, *, table_detection: bool) -> str:
+    """The snippet the UI shows as 'how you'd do this yourself' for Adaptive OCR.
+
+    Deliberately NOT the four obvious lines (open → set engine → extract). OCR is
+    not one SDK call here: _prepared_pages rasterises PDFs to one JPEG per page
+    and runs Vision per page, and every document this feature demos is a PDF. The
+    short form would error on all four of them — worse than no Code view, in the
+    one artefact built to prove the SDK works. So the snippet carries the
+    pre-render, framed as what it is from the reader's side: Adaptive OCR reads
+    page images.
+
+    Mirrors _run_vision's getter style (doc.get_settings()) rather than
+    _build_code's property style, because the getter path is the one proven to
+    execute.
+
+    `languages` and `table_detection` interpolate from the run that produced the
+    result, so the snippet and the output on screen agree.
+
+    The pages are exported into a tempfile.TemporaryDirectory, mirroring what
+    _prepared_pages does with a NamedTemporaryFile basename. Fixed names in the
+    CWD look tidier and are silently wrong: run the snippet on a 3-page PDF and
+    then a 1-page PDF from the same directory, and run 2's glob still returns
+    run 1's page-1..3.jpg, so `paths` is non-empty, the single-page fallback
+    never fires, and the snippet OCRs the PREVIOUS document while printing it
+    as the current one. Trying a second document is the first thing a prospect
+    does. A private directory also means the glob cannot meet an unrelated
+    page-cover.jpg, on which the numeric sort key raises AttributeError.
+    """
+    is_markdown = echo["outputFormat"] == "markdown"
+    # One import per line: PEP 8, and this is pasted into a customer's project.
+    # json is only needed by the merge, which the markdown branch does not do.
+    # An unused import would be harmless but the snippet is read as much as run.
+    stdlib = ["glob", "os", "re", "tempfile"]
+    if not is_markdown:
+        stdlib.insert(1, "json")
+    # Trailing blank line: stdlib and third-party are separate import groups.
+    imports = "".join(f"import {module}\n" for module in stdlib) + "\n"
+    sdk_imports = (
+        "from nutrient_sdk import (Document, ImageExportFormat, Vision,\n"
+        "                          VisionEngine, VisionFeatures"
+        + (", VisionOutputFormat)\n\n" if is_markdown else ")\n\n")
+    )
+    output_format_line = (
+        "            vision.set_output_format(VisionOutputFormat.MARKDOWN)\n"
+        if is_markdown
+        else ""
+    )
+    if is_markdown:
+        tail = f"print({PAGE_BREAK!r}.join(raws))\n"
+    else:
+        # The minimal merge: rewrite pageNumber/readingOrder and concatenate.
+        # merge_element_pages also harvests page width/height from `metadata`,
+        # which exists only to place overlay boxes — studio plumbing, not
+        # something a reader of this snippet needs.
+        tail = (
+            "elements, next_order = [], 0\n"
+            "for page_idx, raw in enumerate(raws, start=1):\n"
+            "    payload = json.loads(raw)\n"
+            '    page_elements = payload.get("elements", [])\n'
+            '    page_elements.sort(key=lambda e: e.get("readingOrder", 0))\n'
+            "    for element in page_elements:\n"
+            "        # Each per-page call reports pageNumber=1 and restarts\n"
+            "        # readingOrder at 0 — rewrite both or the pages interleave.\n"
+            '        element["pageNumber"] = page_idx\n'
+            '        element["readingOrder"] = next_order\n'
+            "        next_order += 1\n"
+            "        elements.append(element)\n\n"
+            "print(json.dumps(elements, indent=2))\n"
+        )
+    # json.dumps, not an f-string in quotes: a filename is user-supplied and one
+    # embedded quote or backslash would break the literal.
+    #
+    # `languages` a few lines down is interpolated raw instead, and that
+    # asymmetry is deliberate. It is safe BY ALLOWLIST, not by escaping:
+    # validate_ocr_options() checks every '+'-separated code against
+    # OCR_LANGUAGES before `echo` exists, so the value here can only ever be
+    # allowlisted codes joined with '+'. Do not "fix" it into json.dumps —
+    # set_default_languages() takes a bare string and the quotes are already
+    # in the template.
+    open_target = json.dumps(filename)
+    return (
+        imports
+        + sdk_imports
+        + "# Adaptive OCR reads page images, so render each PDF page to a JPEG\n"
+        "# first. export_as_image() does the whole document in one call.\n"
+        "# The pages go to a private temporary directory, so the glob below can\n"
+        "# only ever match this run's own output — point the snippet at a second\n"
+        "# document and it cannot pick up the first one's pages — and nothing is\n"
+        "# left behind in your working directory.\n"
+        "with tempfile.TemporaryDirectory() as pages_dir:\n"
+        '    base = os.path.join(pages_dir, "page.jpg")\n'
+        f"    with Document.open({open_target}) as document:\n"
+        "        images = document.get_settings().get_image_settings()\n"
+        "        images.set_export_format(ImageExportFormat.JPEG)\n"
+        "        document.export_as_image(base)\n\n"
+        "    # Multi-page writes page-1.jpg, page-2.jpg, …; a single-page\n"
+        "    # document is written to page.jpg itself, which is why the glob\n"
+        "    # needs the `base` fallback. Sort numerically so 10 follows 9.\n"
+        '    paths = sorted(glob.glob(os.path.join(pages_dir, "page-*.jpg")),\n'
+        '                   key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1)))\n'
+        "    paths = paths or [base]\n\n"
+        "    # Still inside the with: the JPEGs are deleted when it exits, so\n"
+        "    # every page has to be read before then.\n"
+        "    raws = []\n"
+        "    for path in paths:\n"
+        "        with Document.open(path) as page:\n"
+        "            settings = page.get_settings()\n"
+        "            vision = settings.get_vision_settings()\n"
+        "            vision.set_engine(VisionEngine.ADAPTIVE_OCR)\n"
+        "            vision.set_features(VisionFeatures.ALL.value)\n"
+        + output_format_line
+        + f'            settings.get_ocr_settings().set_default_languages("{echo["languages"]}")\n'
+        f"            settings.get_ocr_settings().set_enable_table_detection({table_detection})\n"
+        "            raws.append(Vision.set(page).extract_content())\n\n"
+        + tail
+    )
+
+
 def extract_text_ocr(
     image_bytes: bytes,
     original_filename: str,
@@ -238,6 +356,11 @@ def extract_text_ocr(
         )
         result["markdown"] = ""
     result["config"] = {**echo, "tableDetection": table_detection}
+    # After config, on the shared path, so both branches return the same key set —
+    # test_ocr_endpoint_markdown_key_set_matches_json is what enforces that.
+    result["code"] = _build_ocr_code(
+        original_filename, echo, table_detection=table_detection
+    )
     result["timingMs"] = int((time.perf_counter() - start) * 1000)
     return result
 
