@@ -177,6 +177,92 @@ def _prepared_input(image_bytes: bytes, original_filename: str) -> Iterator[str]
         yield paths[0]
 
 
+def _build_ocr_code(filename: str, echo: dict, *, table_detection: bool) -> str:
+    """The snippet the UI shows as 'how you'd do this yourself' for Adaptive OCR.
+
+    Deliberately NOT the four obvious lines (open → set engine → extract). OCR is
+    not one SDK call here: _prepared_pages rasterises PDFs to one JPEG per page
+    and runs Vision per page, and every document this feature demos is a PDF. The
+    short form would error on all four of them — worse than no Code view, in the
+    one artefact built to prove the SDK works. So the snippet carries the
+    pre-render, framed as what it is from the reader's side: Adaptive OCR reads
+    page images.
+
+    Mirrors _run_vision's getter style (doc.get_settings()) rather than
+    _build_code's property style, because the getter path is the one proven to
+    execute.
+
+    `languages` and `table_detection` interpolate from the run that produced the
+    result, so the snippet and the output on screen agree.
+    """
+    is_markdown = echo["outputFormat"] == "markdown"
+    # json is only needed by the merge, which the markdown branch does not do.
+    # An unused import would be harmless but the snippet is read as much as run.
+    imports = "import glob, re\n" if is_markdown else "import glob, json, re\n"
+    sdk_imports = (
+        "from nutrient_sdk import (Document, ImageExportFormat, Vision,\n"
+        "                          VisionEngine, VisionFeatures"
+        + (", VisionOutputFormat)\n\n" if is_markdown else ")\n\n")
+    )
+    output_format_line = (
+        "        vision.set_output_format(VisionOutputFormat.MARKDOWN)\n"
+        if is_markdown
+        else ""
+    )
+    if is_markdown:
+        tail = f"print({PAGE_BREAK!r}.join(raws))\n"
+    else:
+        # The minimal merge: rewrite pageNumber/readingOrder and concatenate.
+        # merge_element_pages also harvests page width/height from `metadata`,
+        # which exists only to place overlay boxes — studio plumbing, not
+        # something a reader of this snippet needs.
+        tail = (
+            "elements, next_order = [], 0\n"
+            "for page_idx, raw in enumerate(raws, start=1):\n"
+            "    payload = json.loads(raw)\n"
+            '    page_elements = payload.get("elements", [])\n'
+            '    page_elements.sort(key=lambda e: e.get("readingOrder", 0))\n'
+            "    for element in page_elements:\n"
+            "        # Each per-page call reports pageNumber=1 and restarts\n"
+            "        # readingOrder at 0 — rewrite both or the pages interleave.\n"
+            '        element["pageNumber"] = page_idx\n'
+            '        element["readingOrder"] = next_order\n'
+            "        next_order += 1\n"
+            "        elements.append(element)\n\n"
+            "print(json.dumps(elements, indent=2))\n"
+        )
+    # json.dumps, not an f-string in quotes: a filename is user-supplied and one
+    # embedded quote or backslash would break the literal.
+    open_target = json.dumps(filename)
+    return (
+        imports
+        + sdk_imports
+        + "# Adaptive OCR reads page images, so render each PDF page to a JPEG\n"
+        "# first. export_as_image() does the whole document in one call.\n"
+        f"with Document.open({open_target}) as document:\n"
+        "    images = document.get_settings().get_image_settings()\n"
+        "    images.set_export_format(ImageExportFormat.JPEG)\n"
+        '    document.export_as_image("page.jpg")\n\n'
+        "# Multi-page writes page-1.jpg, page-2.jpg, …; a single-page document\n"
+        "# is written to page.jpg itself. Sort numerically so 10 follows 9.\n"
+        'paths = sorted(glob.glob("page-*.jpg"),\n'
+        '               key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1)))\n'
+        'paths = paths or ["page.jpg"]\n\n'
+        "raws = []\n"
+        "for path in paths:\n"
+        "    with Document.open(path) as page:\n"
+        "        settings = page.get_settings()\n"
+        "        vision = settings.get_vision_settings()\n"
+        "        vision.set_engine(VisionEngine.ADAPTIVE_OCR)\n"
+        "        vision.set_features(VisionFeatures.ALL.value)\n"
+        + output_format_line
+        + f'        settings.get_ocr_settings().set_default_languages("{echo["languages"]}")\n'
+        f"        settings.get_ocr_settings().set_enable_table_detection({table_detection})\n"
+        "        raws.append(Vision.set(page).extract_content())\n\n"
+        + tail
+    )
+
+
 def extract_text_ocr(
     image_bytes: bytes,
     original_filename: str,
@@ -238,6 +324,11 @@ def extract_text_ocr(
         )
         result["markdown"] = ""
     result["config"] = {**echo, "tableDetection": table_detection}
+    # After config, on the shared path, so both branches return the same key set —
+    # test_ocr_endpoint_markdown_key_set_matches_json is what enforces that.
+    result["code"] = _build_ocr_code(
+        original_filename, echo, table_detection=table_detection
+    )
     result["timingMs"] = int((time.perf_counter() - start) * 1000)
     return result
 
