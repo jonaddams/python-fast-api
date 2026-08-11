@@ -455,15 +455,19 @@ def _build_handwriting_code(
     """
     is_vlm = engine == "VLM"
     engine_constant = "VisionEngine.VLM_ENHANCED_ICR" if is_vlm else "VisionEngine.ICR"
-    imports = "import glob\nimport json\nimport os\nimport re\nimport tempfile\n"
-    if is_vlm:
-        imports += "\n"
-    imports += "\n"
+    # One blank line between the stdlib group and the nutrient_sdk group, on
+    # both branches — matching _build_ocr_code's imports exactly.
+    imports = "import glob\nimport json\nimport os\nimport re\nimport tempfile\n\n"
     sdk_imports = (
         "from nutrient_sdk import (Document, ImageExportFormat, Vision,\n"
         "                          VisionEngine, VisionFeatures)\n"
     )
-    if is_vlm:
+    # Gated on `provider` too, not just `is_vlm`: with no provider configured
+    # (the /vlm default — see _run_vision's `if provider:` guard, which talks
+    # to a local VLM server and sets no provider at all), nothing below
+    # references VlmProvider, and an unused import is a defect in a snippet
+    # meant to be read as much as run.
+    if is_vlm and provider:
         sdk_imports += "from nutrient_sdk.vlmprovider import VlmProvider\n"
     sdk_imports += "\n"
 
@@ -473,11 +477,21 @@ def _build_handwriting_code(
             '            settings.get_open_ai_api_endpoint_settings().set_api_key(\n'
             '                os.environ["OPENAI_API_KEY"])\n'
         )
-    elif is_vlm:
+    elif is_vlm and provider:
         provider_lines = (
             "            vision.set_provider(VlmProvider.CLAUDE)\n"
             "            settings.get_claude_api_settings().set_api_key(\n"
             '                os.environ["ANTHROPIC_API_KEY"])\n'
+        )
+    elif is_vlm:
+        # provider=None mirrors _run_vision's `if provider:` guard: /vlm's
+        # own default (no provider set) talks to a local VLM server at
+        # localhost:1234, not Claude — a snippet that set Claude here would
+        # not match the run that produced it, and would fail without
+        # ANTHROPIC_API_KEY for a reader who never configured a provider.
+        provider_lines = (
+            "            # No provider set: the SDK default talks to a local VLM\n"
+            "            # server at localhost:1234 (e.g. LM Studio or Ollama).\n"
         )
     else:
         provider_lines = ""

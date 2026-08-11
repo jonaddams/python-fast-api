@@ -350,6 +350,21 @@ class TestBuildHandwritingCode:
         assert "VlmProvider.OPEN_AI" in openai
         assert "OPENAI_API_KEY" in openai
 
+    def test_vlm_snippet_with_no_provider_targets_the_local_default(self):
+        # /vlm's own default (provider unset) is _run_vision's `if provider:`
+        # guard: no provider is set at all and the SDK talks to a local VLM
+        # server. A snippet that assumed Claude here would fail without
+        # ANTHROPIC_API_KEY for a reader who never configured a provider —
+        # and an unused `from nutrient_sdk.vlmprovider import VlmProvider`
+        # would be a defect of its own in a snippet read as much as run.
+        code = _build_handwriting_code("s.pdf", engine="VLM", provider=None)
+        assert "VisionEngine.VLM_ENHANCED_ICR" in code
+        assert "VlmProvider" not in code
+        assert "api_key" not in code
+        assert "ANTHROPIC_API_KEY" not in code
+        compile(code, "<snippet>", "exec")
+        assert unbound_names(code) == set()
+
     def test_pages_are_written_to_a_directory_the_snippet_owns(self):
         # The #63 bug, pinned: a snippet that globs page-*.jpg out of the CWD
         # picks up the PREVIOUS document's pages and silently reads the wrong
