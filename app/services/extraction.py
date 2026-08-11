@@ -338,7 +338,9 @@ def _build_describe_code(
     # as run, and a stray name invites a reader to wonder what it is for.
     if is_pdf:
         imports = (
+            "import glob\n"
             "import os\n"
+            "import re\n"
             "import tempfile\n\n"
             "from nutrient_sdk import (DescriptionLevel, Document,\n"
             "                          ImageExportFormat, Vision)\n"
@@ -393,21 +395,37 @@ def _build_describe_code(
         "        print(Vision.set(page).describe())\n"
     )
 
+    # export_as_image() rasterises EVERY page in one call — a multi-page PDF is
+    # written as page-1.jpg, page-2.jpg, ... and the bare `base` path is never
+    # created; only a single-page document writes directly to `base`. Opening
+    # a hardcoded "page-1.jpg" (or `base` unconditionally) raises
+    # FileNotFoundError on any real multi-page PDF — glob for the suffixed
+    # outputs, sort numerically, and fall back to `base` for the single-page
+    # case, exactly as _build_ocr_code does. Vision.describe() is per-image,
+    # so only the first path is opened.
     return (
         imports
         + "# Vision.describe() reads ONE page image, so this path handles PAGE 1\n"
-        "# ONLY — it is not a whole-document summary. Render page 1 to a JPEG\n"
-        "# first. The file goes to a private temporary directory, so nothing is\n"
+        "# ONLY — it is not a whole-document summary. export_as_image()\n"
+        "# rasterises EVERY page in one call; this snippet uses only the first\n"
+        "# one. The pages go to a private temporary directory, so nothing is\n"
         "# left in your working directory and a second run cannot pick up the\n"
         "# first run's output.\n"
         "with tempfile.TemporaryDirectory() as pages_dir:\n"
-        '    page_one = os.path.join(pages_dir, "page-1.jpg")\n'
+        '    base = os.path.join(pages_dir, "page.jpg")\n'
         f"    with Document.open({open_target}) as document:\n"
         "        images = document.get_settings().get_image_settings()\n"
         "        images.set_export_format(ImageExportFormat.JPEG)\n"
-        "        document.export_as_image(page_one)\n\n"
-        "    # Still inside the with: the JPEG is deleted when it exits.\n"
-        "    with Document.open(page_one) as page:\n"
+        "        document.export_as_image(base)\n\n"
+        "    # Multi-page writes page-1.jpg, page-2.jpg, …; a single-page\n"
+        "    # document is written to page.jpg itself, which is why the glob\n"
+        "    # needs the `base` fallback. Sort numerically so 10 follows 9.\n"
+        '    paths = sorted(glob.glob(os.path.join(pages_dir, "page-*.jpg")),\n'
+        '                   key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1)))\n'
+        "    paths = paths or [base]\n\n"
+        "    # Still inside the with: the JPEG is deleted when it exits. Only\n"
+        "    # the first page is opened — this endpoint is page 1 only.\n"
+        "    with Document.open(paths[0]) as page:\n"
         + nested_body
     )
 

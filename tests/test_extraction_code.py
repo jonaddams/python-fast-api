@@ -291,3 +291,21 @@ class TestBuildDescribeCode:
         compile(code, "<describe-snippet>", "exec")
         assert "set_standard_prompt" in code
         assert unbound_names(code) == set()
+
+    def test_pdf_branch_globs_the_multipage_export_instead_of_opening_a_bare_path(self):
+        # export_as_image() writes ALL pages: page-1.jpg, page-2.jpg, ... and
+        # never the bare base path for a multi-page PDF (that path exists only
+        # in the single-page case). Opening a hardcoded "page-1.jpg" (or any
+        # bare base path) unconditionally raises FileNotFoundError on a real
+        # multi-page document, which is exactly the bug a prospect would hit
+        # pasting this into their own multi-page-PDF project. Assert on the
+        # emitted source rather than running the SDK.
+        code = _build_describe_code(
+            "invoice.pdf", is_pdf=True, prompt=None, level="standard", provider="claude"
+        )
+        assert 'glob.glob(os.path.join(pages_dir, "page-*.jpg"))' in code
+        assert 'key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1))' in code
+        assert "paths = paths or [base]" in code
+        assert "Document.open(paths[0])" in code
+        assert 'Document.open("page-1.jpg")' not in code
+        assert "Document.open(page_one)" not in code
