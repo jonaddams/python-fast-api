@@ -295,6 +295,123 @@ def _build_ocr_code(filename: str, echo: dict, *, table_detection: bool) -> str:
     )
 
 
+def _build_describe_code(
+    filename: str,
+    *,
+    is_pdf: bool,
+    prompt: str | None,
+    level: str,
+    provider: str,
+) -> str:
+    """The 'how you'd do this yourself' snippet for Image description.
+
+    PAGE 1 ONLY, and the snippet says so. describe_image wraps _prepared_input,
+    which is the max_pages=1 variant — the describe path is inherently per-image.
+    A snippet that looked like it covered a whole document would be a lie a
+    prospect pastes into their own project.
+
+    Takes `is_pdf` rather than inferring from the extension, because
+    _prepared_pages branches on the magic bytes. _build_ocr_code receives only
+    `filename` and so emits a rasterisation that never happened for image input;
+    do not reproduce that here.
+
+    `prompt` is USER-SUPPLIED and is json.dumps-escaped. The allowlist argument
+    that lets _build_ocr_code interpolate `languages` raw does not apply.
+    """
+    open_target = json.dumps(filename)
+    level_const = "DETAILED" if level.lower() == "detailed" else "STANDARD"
+    is_openai = provider.lower() == "openai"
+    provider_const = "OPEN_AI" if is_openai else "CLAUDE"
+    key_env = "OPENAI_API_KEY" if is_openai else "ANTHROPIC_API_KEY"
+    key_setter = (
+        "settings.get_open_ai_api_endpoint_settings()"
+        if is_openai
+        else "settings.get_claude_api_settings()"
+    )
+
+    # Per-branch, because only the PDF path uses ImageExportFormat and tempfile.
+    # Verified 2026-08-11: DescriptionLevel, Document, ImageExportFormat and
+    # Vision are all top-level `from nutrient_sdk import (...)` names, while
+    # VlmProvider lives in nutrient_sdk.vlmprovider — the service imports it
+    # separately for exactly that reason. Do NOT emit an import the snippet does
+    # not use: unbound_names() will not catch it, but the snippet is read as much
+    # as run, and a stray name invites a reader to wonder what it is for.
+    if is_pdf:
+        imports = (
+            "import os\n"
+            "import tempfile\n\n"
+            "from nutrient_sdk import (DescriptionLevel, Document,\n"
+            "                          ImageExportFormat, Vision)\n"
+            "from nutrient_sdk.vlmprovider import VlmProvider\n\n"
+        )
+    else:
+        imports = (
+            "import os\n\n"
+            "from nutrient_sdk import DescriptionLevel, Document, Vision\n"
+            "from nutrient_sdk.vlmprovider import VlmProvider\n\n"
+        )
+
+    prompt_line = (
+        f"    descriptor.set_standard_prompt({json.dumps(prompt)})\n" if prompt else ""
+    )
+
+    body = (
+        "    settings = page.get_settings()\n"
+        "    descriptor = settings.get_vision_descriptor_settings()\n"
+        f"    descriptor.set_level(DescriptionLevel.{level_const})\n"
+        + prompt_line
+        + f"    settings.get_vision_settings().set_provider(VlmProvider.{provider_const})\n"
+        f'    {key_setter}.set_api_key(os.environ["{key_env}"])\n\n'
+        "    print(Vision.set(page).describe())\n"
+    )
+
+    if not is_pdf:
+        # No pre-render: _prepared_pages yields a non-PDF unchanged, so the
+        # snippet must not claim to rasterise anything.
+        return (
+            imports
+            + "# An image is already a page, so there is nothing to rasterise.\n"
+            "# Vision.describe() looks at ONE page image and returns prose.\n"
+            f"with Document.open({open_target}) as page:\n" + body
+        )
+
+    # Written out as its own plainly-indented literal (8-space body) rather
+    # than re-indenting `body` with a `.replace()` chain: that chain is fragile
+    # — it can silently mangle a line that happens to start with more than one
+    # run of 4 spaces — and correctness beats DRY here. Keep this in sync with
+    # `body` above by hand if either changes.
+    nested_prompt_line = (
+        f"        descriptor.set_standard_prompt({json.dumps(prompt)})\n" if prompt else ""
+    )
+    nested_body = (
+        "        settings = page.get_settings()\n"
+        "        descriptor = settings.get_vision_descriptor_settings()\n"
+        f"        descriptor.set_level(DescriptionLevel.{level_const})\n"
+        + nested_prompt_line
+        + f"        settings.get_vision_settings().set_provider(VlmProvider.{provider_const})\n"
+        f'        {key_setter}.set_api_key(os.environ["{key_env}"])\n\n'
+        "        print(Vision.set(page).describe())\n"
+    )
+
+    return (
+        imports
+        + "# Vision.describe() reads ONE page image, so this path handles PAGE 1\n"
+        "# ONLY — it is not a whole-document summary. Render page 1 to a JPEG\n"
+        "# first. The file goes to a private temporary directory, so nothing is\n"
+        "# left in your working directory and a second run cannot pick up the\n"
+        "# first run's output.\n"
+        "with tempfile.TemporaryDirectory() as pages_dir:\n"
+        '    page_one = os.path.join(pages_dir, "page-1.jpg")\n'
+        f"    with Document.open({open_target}) as document:\n"
+        "        images = document.get_settings().get_image_settings()\n"
+        "        images.set_export_format(ImageExportFormat.JPEG)\n"
+        "        document.export_as_image(page_one)\n\n"
+        "    # Still inside the with: the JPEG is deleted when it exits.\n"
+        "    with Document.open(page_one) as page:\n"
+        + nested_body
+    )
+
+
 def _build_tables_code(filename: str, *, is_pdf: bool) -> str:
     """The 'how you'd do this yourself' snippet for Table Extraction.
 
@@ -498,8 +615,11 @@ def describe_image(
     level: str = "standard",
 ) -> dict:
     """Run Vision.describe() with an optional custom prompt, provider, and detail level."""
+    import time
+
     from nutrient_sdk.vlmprovider import VlmProvider
 
+    start = time.perf_counter()
     level_map = {
         "standard": DescriptionLevel.STANDARD,
         "detailed": DescriptionLevel.DETAILED,
@@ -534,6 +654,18 @@ def describe_image(
         "level": level_key,
         "promptUsed": prompt or "(default)",
         "text": text,
+        # Same magic-byte test _prepared_pages uses, so the snippet describes the
+        # path that actually ran rather than guessing from the extension.
+        "code": _build_describe_code(
+            original_filename,
+            is_pdf=image_bytes[:4] == b"%PDF",
+            prompt=prompt,
+            level=level_key,
+            provider=p,
+        ),
+        # /describe was the only extraction endpoint without this, and the
+        # studio's meta row shows elapsed time for every other feature.
+        "timingMs": int((time.perf_counter() - start) * 1000),
     }
 
 

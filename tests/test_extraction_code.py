@@ -9,7 +9,7 @@ has to be compiled, and every name it references has to be bound.
 import ast
 import builtins
 
-from app.services.extraction import _build_ocr_code, _build_tables_code
+from app.services.extraction import _build_describe_code, _build_ocr_code, _build_tables_code
 
 JSON_ECHO = {"languages": "eng", "outputFormat": "json"}
 MARKDOWN_ECHO = {"languages": "eng", "outputFormat": "markdown"}
@@ -219,3 +219,75 @@ class TestBuildTablesCode:
     def test_filename_with_a_quote_does_not_break_the_literal(self):
         code = _build_tables_code('we"ird.pdf', is_pdf=True)
         compile(code, "<tables-snippet>", "exec")
+
+
+class TestBuildDescribeCode:
+    def test_pdf_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_describe_code(
+            "invoice.pdf", is_pdf=True, prompt=None, level="standard", provider="claude"
+        )
+        compile(code, "<describe-snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_image_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_describe_code(
+            "scan.png", is_pdf=False, prompt=None, level="detailed", provider="openai"
+        )
+        compile(code, "<describe-snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_snippet_states_the_page_one_limit(self):
+        # describe_image wraps _prepared_input, which passes max_pages=1. A snippet
+        # implying whole-document coverage is a lie a prospect would paste into
+        # their own project.
+        code = _build_describe_code(
+            "invoice.pdf", is_pdf=True, prompt=None, level="standard", provider="claude"
+        )
+        assert "page 1" in code.lower() or "first page" in code.lower()
+
+    def test_image_input_does_not_describe_a_prerender_that_never_happens(self):
+        code = _build_describe_code(
+            "scan.png", is_pdf=False, prompt=None, level="standard", provider="claude"
+        )
+        assert "export_as_image" not in code
+        assert "TemporaryDirectory" not in code
+
+    def test_pdf_input_owns_the_directory_it_writes_into(self):
+        # The #35 bug: a fixed name in the CWD let a stale file from a previous
+        # run be described instead, exit code 0.
+        code = _build_describe_code(
+            "invoice.pdf", is_pdf=True, prompt=None, level="standard", provider="claude"
+        )
+        assert "tempfile.TemporaryDirectory()" in code
+
+    def test_level_and_provider_interpolate_from_the_run(self):
+        code = _build_describe_code(
+            "x.pdf", is_pdf=True, prompt=None, level="detailed", provider="openai"
+        )
+        assert "DescriptionLevel.DETAILED" in code
+        assert "VlmProvider.OPEN_AI" in code
+        other = _build_describe_code(
+            "x.pdf", is_pdf=True, prompt=None, level="standard", provider="claude"
+        )
+        assert "DescriptionLevel.STANDARD" in other
+        assert "VlmProvider.CLAUDE" in other
+
+    def test_no_prompt_means_no_prompt_call(self):
+        code = _build_describe_code(
+            "x.pdf", is_pdf=True, prompt=None, level="standard", provider="claude"
+        )
+        assert "set_standard_prompt" not in code
+
+    def test_prompt_with_a_quote_and_a_newline_survives(self):
+        # The prompt is USER-SUPPLIED. The allowlist argument that justifies raw
+        # interpolation for `languages` in _build_ocr_code does not apply here.
+        code = _build_describe_code(
+            "x.pdf",
+            is_pdf=True,
+            prompt='Say "hello"\nthen stop',
+            level="standard",
+            provider="claude",
+        )
+        compile(code, "<describe-snippet>", "exec")
+        assert "set_standard_prompt" in code
+        assert unbound_names(code) == set()
