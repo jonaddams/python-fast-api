@@ -9,7 +9,12 @@ has to be compiled, and every name it references has to be bound.
 import ast
 import builtins
 
-from app.services.extraction import _build_describe_code, _build_ocr_code, _build_tables_code
+from app.services.extraction import (
+    _build_describe_code,
+    _build_handwriting_code,
+    _build_ocr_code,
+    _build_tables_code,
+)
 
 JSON_ECHO = {"languages": "eng", "outputFormat": "json"}
 MARKDOWN_ECHO = {"languages": "eng", "outputFormat": "markdown"}
@@ -309,3 +314,50 @@ class TestBuildDescribeCode:
         assert "Document.open(paths[0])" in code
         assert 'Document.open("page-1.jpg")' not in code
         assert "Document.open(page_one)" not in code
+
+
+class TestBuildHandwritingCode:
+    def test_local_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_handwriting_code("scan.pdf", engine="ICR", provider=None)
+        compile(code, "<snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_vlm_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_handwriting_code("scan.pdf", engine="VLM", provider="claude")
+        compile(code, "<snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_engine_interpolates_from_the_run(self):
+        assert "VisionEngine.ICR" in _build_handwriting_code(
+            "s.pdf", engine="ICR", provider=None
+        )
+        assert "VisionEngine.VLM_ENHANCED_ICR" in _build_handwriting_code(
+            "s.pdf", engine="VLM", provider="claude"
+        )
+
+    def test_local_snippet_configures_no_provider(self):
+        # Local ICR's whole claim is that nothing leaves the machine. A snippet
+        # that sets an API key would contradict the feature it demonstrates.
+        code = _build_handwriting_code("s.pdf", engine="ICR", provider=None)
+        assert "api_key" not in code
+        assert "VlmProvider" not in code
+
+    def test_vlm_snippet_configures_the_provider_it_ran_with(self):
+        claude = _build_handwriting_code("s.pdf", engine="VLM", provider="claude")
+        assert "VlmProvider.CLAUDE" in claude
+        assert "ANTHROPIC_API_KEY" in claude
+        openai = _build_handwriting_code("s.pdf", engine="VLM", provider="openai")
+        assert "VlmProvider.OPEN_AI" in openai
+        assert "OPENAI_API_KEY" in openai
+
+    def test_pages_are_written_to_a_directory_the_snippet_owns(self):
+        # The #63 bug, pinned: a snippet that globs page-*.jpg out of the CWD
+        # picks up the PREVIOUS document's pages and silently reads the wrong
+        # file at exit code 0.
+        code = _build_handwriting_code("s.pdf", engine="ICR", provider=None)
+        assert "tempfile.TemporaryDirectory()" in code
+        assert 'glob.glob(os.path.join(pages_dir, "page-*.jpg"))' in code
+
+    def test_filename_with_a_quote_does_not_break_the_literal(self):
+        code = _build_handwriting_code('we"ird.pdf', engine="ICR", provider=None)
+        compile(code, "<snippet>", "exec")
