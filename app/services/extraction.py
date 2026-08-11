@@ -735,12 +735,47 @@ def extract_text_ocr(
     return result
 
 
+def _extract_handwriting(
+    image_bytes: bytes,
+    original_filename: str,
+    engine: str,
+    *,
+    provider: str | None,
+) -> dict:
+    """Shared tail for the two handwriting engines.
+
+    They differ only by VisionEngine constant and, for VLM, a provider — so the
+    three keys the studio's panel needs (`code`, `timingMs`, `config`) are added
+    in one place rather than in two copies that would drift. `/ocr` grew the
+    same three keys separately and keeps its own copy, because it also has a
+    markdown branch and an options echo neither of these has.
+    """
+    import time
+
+    start = time.perf_counter()
+    result = _extract_with_engine(
+        image_bytes, original_filename, engine, provider=provider
+    )
+    result["config"] = {"engine": engine}
+    if provider:
+        result["config"]["provider"] = provider
+    result["code"] = _build_handwriting_code(
+        original_filename, engine=engine, provider=provider
+    )
+    result["timingMs"] = int((time.perf_counter() - start) * 1000)
+    return result
+
+
 def extract_text_icr(image_bytes: bytes, original_filename: str) -> dict:
-    return _extract_with_engine(image_bytes, original_filename, "ICR")
+    return _extract_handwriting(image_bytes, original_filename, "ICR", provider=None)
 
 
-def extract_text_vlm(image_bytes: bytes, original_filename: str, provider: str | None = None) -> dict:
-    return _extract_with_engine(image_bytes, original_filename, "VLM", provider=provider)
+def extract_text_vlm(
+    image_bytes: bytes, original_filename: str, provider: str | None = None
+) -> dict:
+    return _extract_handwriting(
+        image_bytes, original_filename, "VLM", provider=provider
+    )
 
 
 def describe_image(

@@ -82,6 +82,50 @@ def test_icr_endpoint_returns_text(client: TestClient, sample_image_bytes: bytes
     assert body["statistics"]["totalElements"] > 0
 
 
+def test_icr_endpoint_returns_code_timing_and_config(
+    client: TestClient, sample_image_bytes: bytes, sample_image_name: str
+):
+    resp = client.post(
+        "/api/extraction/icr",
+        files={"file": (sample_image_name, sample_image_bytes, "image/png")},
+    )
+    body = resp.json()
+    assert isinstance(body["timingMs"], int)
+    assert body["config"] == {"engine": "ICR"}
+    assert "VisionEngine.ICR" in body["code"]
+
+
+def test_icr_and_vlm_return_the_same_key_set(
+    client: TestClient, sample_image_bytes: bytes, sample_image_name: str, monkeypatch
+):
+    # Not parity with /ocr: that endpoint also returns `markdown`, which neither
+    # of these engines produces. Parity with EACH OTHER is what the studio's
+    # single results component depends on.
+    monkeypatch.setattr(
+        "app.services.extraction._extract_with_engine",
+        lambda *a, **k: {"engine": "STUB", "textElements": []},
+    )
+    from app.services.extraction import extract_text_icr, extract_text_vlm
+
+    icr = extract_text_icr(b"", "s.pdf")
+    vlm = extract_text_vlm(b"", "s.pdf", provider="claude")
+    assert set(icr) == set(vlm)
+    assert {"code", "timingMs", "config"} <= set(icr)
+
+
+def test_vlm_config_names_the_provider_it_ran_with(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.extraction._extract_with_engine",
+        lambda *a, **k: {"engine": "STUB", "textElements": []},
+    )
+    from app.services.extraction import extract_text_vlm
+
+    assert extract_text_vlm(b"", "s.pdf", provider="openai")["config"] == {
+        "engine": "VLM",
+        "provider": "openai",
+    }
+
+
 def test_vlm_endpoint_returns_503_when_local_vlm_unavailable(
     client: TestClient, sample_image_bytes: bytes, sample_image_name: str
 ):
