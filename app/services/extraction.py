@@ -295,6 +295,122 @@ def _build_ocr_code(filename: str, echo: dict, *, table_detection: bool) -> str:
     )
 
 
+def _build_tables_code(filename: str, *, is_pdf: bool) -> str:
+    """The 'how you'd do this yourself' snippet for Table Extraction.
+
+    Takes `is_pdf` rather than inferring from the extension, because
+    _prepared_pages branches on the magic bytes (image_bytes[:4] == b"%PDF"),
+    not the name. _build_ocr_code receives only `filename` and so cannot make
+    that distinction: POST a PNG to /ocr and its snippet describes a
+    rasterisation that never happened. Passing the flag is the fix.
+
+    The PDF branch carries the pre-render for the same reason _build_ocr_code
+    does — Vision runs per page image, and every document this feature demos is
+    a PDF, so the obvious short form would error on all of them.
+
+    Pages go into a tempfile.TemporaryDirectory the snippet owns. Fixed names in
+    the CWD look tidier and are silently wrong: run it on a 3-page PDF then a
+    1-page PDF from the same directory, and run 2's glob still returns run 1's
+    page-1..3.jpg, so `paths` is non-empty, the single-page fallback never
+    fires, and it prints the PREVIOUS document's tables as the current one.
+    """
+    # json.dumps, not an f-string in quotes: a filename is user-supplied and one
+    # embedded quote or backslash would break the literal.
+    open_target = json.dumps(filename)
+
+    # The table filter and the print are shared by both branches — the only
+    # difference is how `raws` gets populated.
+    tail = (
+        "tables = []\n"
+        "for page_idx, raw in enumerate(raws, start=1):\n"
+        '    for element in json.loads(raw).get("elements", []):\n'
+        '        if str(element.get("type", "")).lower() == "table":\n'
+        '            element["pageNumber"] = page_idx\n'
+        "            tables.append(element)\n\n"
+        'print(f"{len(tables)} tables")\n'
+        "print(json.dumps(tables, indent=2))\n"
+    )
+
+    # 12-space indent: nested inside `for path in paths:` (4) -> `with
+    # Document.open(path) as page:` (8) -> this body (12), matching the
+    # working pattern in _build_ocr_code above.
+    vision_block = (
+        "            settings = page.get_settings()\n"
+        "            vision = settings.get_vision_settings()\n"
+        "            vision.set_engine(VisionEngine.VLM)\n"
+        "            # VisionFeatures.ALL rather than a TABLE-specific flag: the\n"
+        "            # narrower features are a no-op (NAPY-20), so ask for\n"
+        "            # everything and filter the elements afterwards.\n"
+        "            vision.set_features(VisionFeatures.ALL.value)\n"
+        "            raws.append(Vision.set(page).extract_content())\n\n"
+    )
+
+    if not is_pdf:
+        # No pre-render: _prepared_pages yields the input unchanged for a
+        # non-PDF, so the snippet must not claim to rasterise anything.
+        # Written out as its own 4-space-indented literal rather than
+        # re-indenting the 8-space `vision_block` above: a string.replace()
+        # chain doing that re-indentation is fragile and not worth the DRY.
+        non_pdf_vision_block = (
+            "    settings = page.get_settings()\n"
+            "    vision = settings.get_vision_settings()\n"
+            "    vision.set_engine(VisionEngine.VLM)\n"
+            "    # VisionFeatures.ALL rather than a TABLE-specific flag: the\n"
+            "    # narrower features are a no-op (NAPY-20), so ask for\n"
+            "    # everything and filter the elements afterwards.\n"
+            "    vision.set_features(VisionFeatures.ALL.value)\n"
+            "    raws.append(Vision.set(page).extract_content())\n\n"
+        )
+        return (
+            "import json\n\n"
+            "from nutrient_sdk import Document, Vision, VisionEngine, VisionFeatures\n\n"
+            "# An image is already a page, so there is nothing to rasterise.\n"
+            "raws = []\n"
+            f"with Document.open({open_target}) as page:\n"
+            + non_pdf_vision_block
+            + tail
+        )
+
+    return (
+        "import glob\n"
+        "import json\n"
+        "import os\n"
+        "import re\n"
+        "import tempfile\n\n"
+        "from nutrient_sdk import (Document, ImageExportFormat, Vision,\n"
+        "                          VisionEngine, VisionFeatures)\n\n"
+        "# Table extraction reads page images, so render each PDF page to a JPEG\n"
+        "# first. export_as_image() does the whole document in one call.\n"
+        "# The pages go to a private temporary directory, so the glob below can\n"
+        "# only ever match this run's own output — point the snippet at a second\n"
+        "# document and it cannot pick up the first one's pages — and nothing is\n"
+        "# left behind in your working directory.\n"
+        "with tempfile.TemporaryDirectory() as pages_dir:\n"
+        '    base = os.path.join(pages_dir, "page.jpg")\n'
+        f"    with Document.open({open_target}) as document:\n"
+        "        images = document.get_settings().get_image_settings()\n"
+        "        images.set_export_format(ImageExportFormat.JPEG)\n"
+        "        document.export_as_image(base)\n\n"
+        "    # Multi-page writes page-1.jpg, page-2.jpg, …; a single-page\n"
+        "    # document is written to page.jpg itself, which is why the glob\n"
+        "    # needs the `base` fallback. Sort numerically so 10 follows 9.\n"
+        '    paths = sorted(glob.glob(os.path.join(pages_dir, "page-*.jpg")),\n'
+        '                   key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1)))\n'
+        "    paths = paths or [base]\n"
+        "    # The studio stops at the first 10 pages (MAX_PRERENDER_PAGES) and\n"
+        "    # reports how many it processed. Drop this slice to do the whole\n"
+        "    # document — but then a long PDF yields more than the panel showed.\n"
+        "    paths = paths[:10]\n\n"
+        "    # Still inside the with: the JPEGs are deleted when it exits, so\n"
+        "    # every page has to be read before then.\n"
+        "    raws = []\n"
+        "    for path in paths:\n"
+        "        with Document.open(path) as page:\n"
+        + vision_block
+        + tail
+    )
+
+
 def extract_text_ocr(
     image_bytes: bytes,
     original_filename: str,
@@ -424,13 +540,40 @@ def describe_image(
 def _format_tables(merged: dict, filename: str, provider: str) -> dict:
     elements = merged.get("elements", [])
     tables = [e for e in elements if str(e.get("type", "")).lower() == "table"]
+    # Raster px dims per 1-based page, harvested by merge_element_pages from the
+    # SDK's top-level `metadata`. Without these a raw bbox cannot be normalised.
+    page_dims = {
+        p["page"]: (p["width"], p["height"])
+        for p in merged.get("pages", []) or []
+        if p.get("width") and p.get("height")
+    }
+
+    def cell_citation(cell: dict, page_1: int | None) -> dict | None:
+        """Fractional, 0-based-page citation — the same shape /structured and
+        /ocr return, which is what lets the studio's overlay draw these with no
+        new drawing code. Raw `bounds` are absolute raster pixels and stay in
+        the payload alongside this, exactly as the OCR path keeps both."""
+        bounds = cell.get("bounds")
+        if not bounds or page_1 not in page_dims:
+            return None
+        w, h = page_dims[page_1]
+        return {"page": page_1 - 1, **normalize_bbox(bounds, w, h)}
+
     return {
         "engine": "VLM_TABLES",
         "filename": filename,
         "provider": provider,
         "tableCount": len(tables),
+        # Same array the OCR path returns, for the same reason: a consumer that
+        # wants to place anything itself needs the page dimensions.
+        "pages": merged.get("pages", []),
         "tables": [
             {
+                # 0-based, matching the viewer and `citation.page`. The SDK
+                # reports 1-based via merge_element_pages.
+                "page": (t.get("pageNumber") - 1)
+                if isinstance(t.get("pageNumber"), int)
+                else None,
                 "rowCount": t.get("rowCount"),
                 "columnCount": t.get("columnCount"),
                 "cells": [
@@ -442,6 +585,7 @@ def _format_tables(merged: dict, filename: str, provider: str) -> dict:
                         "text": c.get("text"),
                         "confidence": round(c.get("confidence") or 0, 2),
                         "bounds": c.get("bounds"),
+                        "citation": cell_citation(c, t.get("pageNumber")),
                     }
                     for c in t.get("cells", [])
                 ],
@@ -463,6 +607,11 @@ def extract_tables(image_bytes: bytes, original_filename: str, provider: str = "
     result = _format_tables(merged, original_filename, provider)
     result["totalPages"] = total_pages
     result["processedPages"] = processed_pages
+    # Same magic-byte test _prepared_pages uses, so the snippet describes the
+    # path that actually ran rather than guessing from the extension.
+    result["code"] = _build_tables_code(
+        original_filename, is_pdf=image_bytes[:4] == b"%PDF"
+    )
     return result
 
 

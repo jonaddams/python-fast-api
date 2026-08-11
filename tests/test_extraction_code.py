@@ -9,7 +9,7 @@ has to be compiled, and every name it references has to be bound.
 import ast
 import builtins
 
-from app.services.extraction import _build_ocr_code
+from app.services.extraction import _build_ocr_code, _build_tables_code
 
 JSON_ECHO = {"languages": "eng", "outputFormat": "json"}
 MARKDOWN_ECHO = {"languages": "eng", "outputFormat": "markdown"}
@@ -176,3 +176,46 @@ class TestBuildOcrCode:
         # literal is a one-character break, so the name goes through json.dumps.
         code = _build_ocr_code('he"llo\\scan.pdf', JSON_ECHO, table_detection=True)
         compile(code, "<snippet>", "exec")
+
+
+class TestBuildTablesCode:
+    def test_pdf_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_tables_code("invoice.pdf", is_pdf=True)
+        compile(code, "<tables-snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_image_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_tables_code("scan.png", is_pdf=False)
+        compile(code, "<tables-snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_pages_are_written_to_a_directory_the_snippet_owns(self):
+        # The #35 bug: exporting to page.jpg in the CWD let a stale glob from a
+        # previous 3-page run make `paths` non-empty on a 1-page document, so the
+        # fallback never fired and it OCR'd the PREVIOUS document, exit code 0.
+        code = _build_tables_code("invoice.pdf", is_pdf=True)
+        assert "tempfile.TemporaryDirectory()" in code
+        assert 'os.path.join(pages_dir, "page.jpg")' in code
+
+    def test_image_input_does_not_describe_a_prerender_that_never_happens(self):
+        # _build_ocr_code receives only `filename`, so it cannot make the %PDF
+        # check _prepared_pages makes: POST a PNG and its snippet describes a
+        # rasterisation that did not occur. This one takes is_pdf.
+        code = _build_tables_code("scan.png", is_pdf=False)
+        assert "export_as_image" not in code
+        assert "TemporaryDirectory" not in code
+
+    def test_snippet_states_the_page_cap(self):
+        # Production caps at MAX_PRERENDER_PAGES = 10; a snippet that processes
+        # every page hands a prospect more output than the panel showed.
+        code = _build_tables_code("invoice.pdf", is_pdf=True)
+        assert "10" in code
+        assert "MAX_PRERENDER_PAGES" in code or "first 10" in code
+
+    def test_snippet_filters_to_table_elements(self):
+        code = _build_tables_code("invoice.pdf", is_pdf=True)
+        assert '"table"' in code
+
+    def test_filename_with_a_quote_does_not_break_the_literal(self):
+        code = _build_tables_code('we"ird.pdf', is_pdf=True)
+        compile(code, "<tables-snippet>", "exec")
