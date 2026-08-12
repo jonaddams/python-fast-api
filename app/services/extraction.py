@@ -430,6 +430,125 @@ def _build_describe_code(
     )
 
 
+def _build_handwriting_code(
+    filename: str, *, engine: str, provider: str | None
+) -> str:
+    """The 'how you'd do this yourself' snippet for handwriting recognition.
+
+    Same shape as _build_ocr_code's JSON branch and for the same reason: neither
+    ICR nor VLM_ENHANCED_ICR is one SDK call here, because _prepared_pages
+    rasterises a PDF to one JPEG per page and runs Vision per page. Two of the
+    four handwriting documents are JPEGs already, but the snippet has to work on
+    either, and the glob-with-base-fallback covers both.
+
+    No OCR settings lines: set_default_languages() and
+    set_enable_table_detection() belong to Adaptive OCR's panel, and neither
+    endpoint accepts them.
+
+    The provider block appears only on the VLM branch. Local ICR's claim is that
+    nothing leaves the machine, and a snippet that reads an API key would
+    contradict the feature it is demonstrating.
+
+    Pages go into a tempfile.TemporaryDirectory for the reason spelled out at
+    length in _build_ocr_code: fixed names in the CWD make run 2 read run 1's
+    pages, silently, at exit code 0.
+    """
+    is_vlm = engine == "VLM"
+    engine_constant = "VisionEngine.VLM_ENHANCED_ICR" if is_vlm else "VisionEngine.ICR"
+    # One blank line between the stdlib group and the nutrient_sdk group, on
+    # both branches — matching _build_ocr_code's imports exactly.
+    imports = "import glob\nimport json\nimport os\nimport re\nimport tempfile\n\n"
+    sdk_imports = (
+        "from nutrient_sdk import (Document, ImageExportFormat, Vision,\n"
+        "                          VisionEngine, VisionFeatures)\n"
+    )
+    # Gated on `provider` too, not just `is_vlm`: with no provider configured
+    # (the /vlm default — see _run_vision's `if provider:` guard, which talks
+    # to a local VLM server and sets no provider at all), nothing below
+    # references VlmProvider, and an unused import is a defect in a snippet
+    # meant to be read as much as run.
+    if is_vlm and provider:
+        sdk_imports += "from nutrient_sdk.vlmprovider import VlmProvider\n"
+    sdk_imports += "\n"
+
+    if is_vlm and provider == "openai":
+        provider_lines = (
+            "            vision.set_provider(VlmProvider.OPEN_AI)\n"
+            '            settings.get_open_ai_api_endpoint_settings().set_api_key(\n'
+            '                os.environ["OPENAI_API_KEY"])\n'
+        )
+    elif is_vlm and provider:
+        provider_lines = (
+            "            vision.set_provider(VlmProvider.CLAUDE)\n"
+            "            settings.get_claude_api_settings().set_api_key(\n"
+            '                os.environ["ANTHROPIC_API_KEY"])\n'
+        )
+    elif is_vlm:
+        # provider=None mirrors _run_vision's `if provider:` guard: /vlm's
+        # own default (no provider set) talks to a local VLM server at
+        # localhost:1234, not Claude — a snippet that set Claude here would
+        # not match the run that produced it, and would fail without
+        # ANTHROPIC_API_KEY for a reader who never configured a provider.
+        provider_lines = (
+            "            # No provider set: the SDK default talks to a local VLM\n"
+            "            # server at localhost:1234 (e.g. LM Studio or Ollama).\n"
+        )
+    else:
+        provider_lines = ""
+
+    lead = (
+        "# Handwriting recognition reads page images, so render each PDF page to\n"
+        "# a JPEG first. export_as_image() does the whole document in one call,\n"
+        "# and an image input passes straight through.\n"
+        "# The pages go to a private temporary directory, so the glob below can\n"
+        "# only ever match this run's own output.\n"
+    )
+    # json.dumps, not an f-string in quotes: a filename is user-supplied and one
+    # embedded quote or backslash would break the literal.
+    open_target = json.dumps(filename)
+    return (
+        imports
+        + sdk_imports
+        + lead
+        + "with tempfile.TemporaryDirectory() as pages_dir:\n"
+        '    base = os.path.join(pages_dir, "page.jpg")\n'
+        f"    with Document.open({open_target}) as document:\n"
+        "        images = document.get_settings().get_image_settings()\n"
+        "        images.set_export_format(ImageExportFormat.JPEG)\n"
+        "        document.export_as_image(base)\n\n"
+        "    # Multi-page writes page-1.jpg, page-2.jpg, …; a single-page\n"
+        "    # document is written to page.jpg itself, which is why the glob\n"
+        "    # needs the `base` fallback. Sort numerically so 10 follows 9.\n"
+        '    paths = sorted(glob.glob(os.path.join(pages_dir, "page-*.jpg")),\n'
+        '                   key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1)))\n'
+        "    paths = paths or [base]\n\n"
+        "    # Still inside the with: the JPEGs are deleted when it exits, so\n"
+        "    # every page has to be read before then.\n"
+        "    raws = []\n"
+        "    for path in paths:\n"
+        "        with Document.open(path) as page:\n"
+        "            settings = page.get_settings()\n"
+        "            vision = settings.get_vision_settings()\n"
+        f"            vision.set_engine({engine_constant})\n"
+        "            vision.set_features(VisionFeatures.ALL.value)\n"
+        + provider_lines
+        + "            raws.append(Vision.set(page).extract_content())\n\n"
+        "elements, next_order = [], 0\n"
+        "for page_idx, raw in enumerate(raws, start=1):\n"
+        "    payload = json.loads(raw)\n"
+        '    page_elements = payload.get("elements", [])\n'
+        '    page_elements.sort(key=lambda e: e.get("readingOrder", 0))\n'
+        "    for element in page_elements:\n"
+        "        # Each per-page call reports pageNumber=1 and restarts\n"
+        "        # readingOrder at 0 — rewrite both or the pages interleave.\n"
+        '        element["pageNumber"] = page_idx\n'
+        '        element["readingOrder"] = next_order\n'
+        "        next_order += 1\n"
+        "        elements.append(element)\n\n"
+        "print(json.dumps(elements, indent=2))\n"
+    )
+
+
 def _build_tables_code(filename: str, *, is_pdf: bool) -> str:
     """The 'how you'd do this yourself' snippet for Table Extraction.
 
@@ -616,12 +735,47 @@ def extract_text_ocr(
     return result
 
 
+def _extract_handwriting(
+    image_bytes: bytes,
+    original_filename: str,
+    engine: str,
+    *,
+    provider: str | None,
+) -> dict:
+    """Shared tail for the two handwriting engines.
+
+    They differ only by VisionEngine constant and, for VLM, a provider — so the
+    three keys the studio's panel needs (`code`, `timingMs`, `config`) are added
+    in one place rather than in two copies that would drift. `/ocr` grew the
+    same three keys separately and keeps its own copy, because it also has a
+    markdown branch and an options echo neither of these has.
+    """
+    import time
+
+    start = time.perf_counter()
+    result = _extract_with_engine(
+        image_bytes, original_filename, engine, provider=provider
+    )
+    result["config"] = {"engine": engine}
+    if provider:
+        result["config"]["provider"] = provider
+    result["code"] = _build_handwriting_code(
+        original_filename, engine=engine, provider=provider
+    )
+    result["timingMs"] = int((time.perf_counter() - start) * 1000)
+    return result
+
+
 def extract_text_icr(image_bytes: bytes, original_filename: str) -> dict:
-    return _extract_with_engine(image_bytes, original_filename, "ICR")
+    return _extract_handwriting(image_bytes, original_filename, "ICR", provider=None)
 
 
-def extract_text_vlm(image_bytes: bytes, original_filename: str, provider: str | None = None) -> dict:
-    return _extract_with_engine(image_bytes, original_filename, "VLM", provider=provider)
+def extract_text_vlm(
+    image_bytes: bytes, original_filename: str, provider: str | None = None
+) -> dict:
+    return _extract_handwriting(
+        image_bytes, original_filename, "VLM", provider=provider
+    )
 
 
 def describe_image(
