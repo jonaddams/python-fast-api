@@ -12,6 +12,7 @@ import builtins
 from app.services.extraction import (
     _build_describe_code,
     _build_handwriting_code,
+    _build_markdown_code,
     _build_ocr_code,
     _build_tables_code,
 )
@@ -376,3 +377,68 @@ class TestBuildHandwritingCode:
     def test_filename_with_a_quote_does_not_break_the_literal(self):
         code = _build_handwriting_code('we"ird.pdf', engine="ICR", provider=None)
         compile(code, "<snippet>", "exec")
+
+
+class TestBuildMarkdownCode:
+    def test_pdf_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_markdown_code("invoice.pdf", is_pdf=True, provider="claude")
+        compile(code, "<markdown-snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_image_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_markdown_code("scan.png", is_pdf=False, provider="openai")
+        compile(code, "<markdown-snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_pages_are_written_to_a_directory_the_snippet_owns(self):
+        # The #35 bug: exporting to page.jpg in the CWD let a stale glob from a
+        # previous 3-page run make `paths` non-empty on a 1-page document, so the
+        # fallback never fired and it OCR'd the PREVIOUS document, exit code 0.
+        code = _build_markdown_code("invoice.pdf", is_pdf=True, provider="claude")
+        assert "tempfile.TemporaryDirectory()" in code
+        assert 'os.path.join(pages_dir, "page.jpg")' in code
+
+    def test_image_input_does_not_describe_a_prerender_that_never_happens(self):
+        code = _build_markdown_code("scan.png", is_pdf=False, provider="claude")
+        assert "export_as_image" not in code
+        assert "TemporaryDirectory" not in code
+
+    def test_snippet_states_the_page_cap(self):
+        # Production caps at MAX_PRERENDER_PAGES = 10; a snippet that claims
+        # every page hands a prospect more output than the panel showed.
+        code = _build_markdown_code("invoice.pdf", is_pdf=True, provider="claude")
+        assert "10" in code
+        assert "MAX_PRERENDER_PAGES" in code or "first 10" in code
+
+    def test_multipage_output_is_joined_with_the_real_separator(self):
+        # Not a lookalike string: the studio's own PAGE_BREAK, so what a
+        # prospect runs produces what the studio showed them.
+        from app.services.extraction import PAGE_BREAK
+
+        code = _build_markdown_code("invoice.pdf", is_pdf=True, provider="claude")
+        assert repr(PAGE_BREAK) in code
+
+    def test_provider_interpolates_from_the_run(self):
+        claude = _build_markdown_code("x.pdf", is_pdf=True, provider="claude")
+        assert "VlmProvider.CLAUDE" in claude
+        assert "ANTHROPIC_API_KEY" in claude
+        openai = _build_markdown_code("x.pdf", is_pdf=True, provider="openai")
+        assert "VlmProvider.OPEN_AI" in openai
+        assert "OPENAI_API_KEY" in openai
+
+    def test_engine_matches_the_one_extract_markdown_actually_runs(self):
+        # extract_markdown calls _run_with_prerender(..., "VLM", ...), and
+        # _run_vision's engine_map sends "VLM" to VLM_ENHANCED_ICR — not the
+        # nonexistent VisionEngine.VLM. Pin the constant that actually exists.
+        code = _build_markdown_code("x.pdf", is_pdf=True, provider="claude")
+        assert "VisionEngine.VLM_ENHANCED_ICR" in code
+
+    def test_pdf_branch_globs_the_multipage_export_instead_of_opening_a_bare_path(self):
+        code = _build_markdown_code("invoice.pdf", is_pdf=True, provider="claude")
+        assert 'glob.glob(os.path.join(pages_dir, "page-*.jpg"))' in code
+        assert 'key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1))' in code
+        assert "paths = paths or [base]" in code
+
+    def test_filename_with_a_quote_does_not_break_the_literal(self):
+        code = _build_markdown_code('we"ird.pdf', is_pdf=True, provider="claude")
+        compile(code, "<markdown-snippet>", "exec")

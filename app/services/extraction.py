@@ -665,6 +665,133 @@ def _build_tables_code(filename: str, *, is_pdf: bool) -> str:
     )
 
 
+def _build_markdown_code(filename: str, *, is_pdf: bool, provider: str) -> str:
+    """The 'how you'd do this yourself' snippet for Markdown export.
+
+    Same shape as _build_tables_code: extract_markdown also calls
+    _run_with_prerender(..., "VLM", ...), so the same PDF/image split and the
+    same MAX_PRERENDER_PAGES cap apply. It differs from _build_tables_code in
+    two ways that matter: it sets VisionOutputFormat.MARKDOWN (so Vision
+    returns page text, not an elements JSON graph, and there is nothing to
+    filter afterwards), and it always configures a provider — extract_markdown
+    defaults `provider` to "claude" and passes it straight through, unlike
+    /vlm's handwriting path where an unset provider is itself a valid,
+    documented local-server mode. So the provider block here is unconditional,
+    matching _build_describe_code's always-on provider rather than
+    _build_handwriting_code's optional one.
+
+    `VisionEngine.VLM_ENHANCED_ICR` is deliberate, not `VisionEngine.VLM`:
+    _run_vision's engine_map sends the "VLM" string _run_with_prerender is
+    called with to VLM_ENHANCED_ICR, and VisionEngine.VLM does not exist on
+    this SDK build. Pin the constant that actually runs.
+
+    Multi-page output is joined with PAGE_BREAK, the same separator
+    merge_markdown_pages uses, so a prospect who runs this against a
+    multi-page PDF sees the same page breaks the studio showed them.
+
+    Pages go into a tempfile.TemporaryDirectory for the reason spelled out at
+    length in _build_ocr_code and _build_tables_code: fixed names in the CWD
+    make run 2 silently read run 1's pages, at exit code 0.
+    """
+    is_openai = provider.lower() == "openai"
+    provider_const = "OPEN_AI" if is_openai else "CLAUDE"
+    key_env = "OPENAI_API_KEY" if is_openai else "ANTHROPIC_API_KEY"
+    key_setter = (
+        "settings.get_open_ai_api_endpoint_settings()"
+        if is_openai
+        else "settings.get_claude_api_settings()"
+    )
+
+    # json.dumps, not an f-string in quotes: a filename is user-supplied and one
+    # embedded quote or backslash would break the literal.
+    open_target = json.dumps(filename)
+
+    # PDF branch: 12-space indent (for path in paths: -> with Document.open -> body),
+    # matching _build_handwriting_code's VLM provider block exactly.
+    if not is_openai:
+        provider_lines = (
+            "            vision.set_provider(VlmProvider.CLAUDE)\n"
+            f'            settings.get_claude_api_settings().set_api_key(\n'
+            f'                os.environ["{key_env}"])\n'
+        )
+    else:
+        provider_lines = (
+            "            vision.set_provider(VlmProvider.OPEN_AI)\n"
+            f'            settings.get_open_ai_api_endpoint_settings().set_api_key(\n'
+            f'                os.environ["{key_env}"])\n'
+        )
+
+    if not is_pdf:
+        # No pre-render: _prepared_pages yields the input unchanged for a
+        # non-PDF, so the snippet must not claim to rasterise anything.
+        non_pdf_provider_lines = (
+            f"    vision.set_provider(VlmProvider.{provider_const})\n"
+            f'    {key_setter}.set_api_key(os.environ["{key_env}"])\n'
+        )
+        return (
+            "import os\n\n"
+            "from nutrient_sdk import (Document, Vision, VisionEngine,\n"
+            "                          VisionFeatures, VisionOutputFormat)\n"
+            "from nutrient_sdk.vlmprovider import VlmProvider\n\n"
+            "# An image is already a page, so there is nothing to rasterise.\n"
+            f"with Document.open({open_target}) as page:\n"
+            "    settings = page.get_settings()\n"
+            "    vision = settings.get_vision_settings()\n"
+            "    vision.set_engine(VisionEngine.VLM_ENHANCED_ICR)\n"
+            "    vision.set_features(VisionFeatures.ALL.value)\n"
+            "    vision.set_output_format(VisionOutputFormat.MARKDOWN)\n"
+            + non_pdf_provider_lines
+            + "\n"
+            "    print(Vision.set(page).extract_content())\n"
+        )
+
+    return (
+        "import glob\n"
+        "import os\n"
+        "import re\n"
+        "import tempfile\n\n"
+        "from nutrient_sdk import (Document, ImageExportFormat, Vision,\n"
+        "                          VisionEngine, VisionFeatures,\n"
+        "                          VisionOutputFormat)\n"
+        "from nutrient_sdk.vlmprovider import VlmProvider\n\n"
+        "# Markdown export reads page images, so render each PDF page to a JPEG\n"
+        "# first. export_as_image() does the whole document in one call.\n"
+        "# The pages go to a private temporary directory, so the glob below can\n"
+        "# only ever match this run's own output — point the snippet at a second\n"
+        "# document and it cannot pick up the first one's pages — and nothing is\n"
+        "# left behind in your working directory.\n"
+        "with tempfile.TemporaryDirectory() as pages_dir:\n"
+        '    base = os.path.join(pages_dir, "page.jpg")\n'
+        f"    with Document.open({open_target}) as document:\n"
+        "        images = document.get_settings().get_image_settings()\n"
+        "        images.set_export_format(ImageExportFormat.JPEG)\n"
+        "        document.export_as_image(base)\n\n"
+        "    # Multi-page writes page-1.jpg, page-2.jpg, …; a single-page\n"
+        "    # document is written to page.jpg itself, which is why the glob\n"
+        "    # needs the `base` fallback. Sort numerically so 10 follows 9.\n"
+        '    paths = sorted(glob.glob(os.path.join(pages_dir, "page-*.jpg")),\n'
+        '                   key=lambda p: int(re.search(r"-(\\d+)\\.jpg$", p).group(1)))\n'
+        "    paths = paths or [base]\n"
+        "    # The studio stops at the first 10 pages (MAX_PRERENDER_PAGES) and\n"
+        "    # reports how many it processed. Drop this slice to do the whole\n"
+        "    # document — but then a long PDF yields more than the panel showed.\n"
+        "    paths = paths[:10]\n\n"
+        "    # Still inside the with: the JPEGs are deleted when it exits, so\n"
+        "    # every page has to be read before then.\n"
+        "    raws = []\n"
+        "    for path in paths:\n"
+        "        with Document.open(path) as page:\n"
+        "            settings = page.get_settings()\n"
+        "            vision = settings.get_vision_settings()\n"
+        "            vision.set_engine(VisionEngine.VLM_ENHANCED_ICR)\n"
+        "            vision.set_features(VisionFeatures.ALL.value)\n"
+        "            vision.set_output_format(VisionOutputFormat.MARKDOWN)\n"
+        + provider_lines
+        + "            raws.append(Vision.set(page).extract_content())\n\n"
+        f"print({PAGE_BREAK!r}.join(raws))\n"
+    )
+
+
 def extract_text_ocr(
     image_bytes: bytes,
     original_filename: str,
@@ -922,6 +1049,9 @@ def extract_tables(image_bytes: bytes, original_filename: str, provider: str = "
 def extract_markdown(image_bytes: bytes, original_filename: str, provider: str = "claude") -> dict:
     # SDK returns Markdown text directly when output_format=MARKDOWN (not JSON);
     # multi-page output is joined with PAGE_BREAK separators.
+    import time
+
+    start = time.perf_counter()
     md, total_pages, processed_pages = _run_with_prerender(
         image_bytes,
         original_filename,
@@ -929,7 +1059,7 @@ def extract_markdown(image_bytes: bytes, original_filename: str, provider: str =
         provider=provider,
         output_format=VisionOutputFormat.MARKDOWN,
     )
-    return {
+    result = {
         "engine": "VLM_MARKDOWN",
         "filename": original_filename,
         "provider": provider,
@@ -938,6 +1068,13 @@ def extract_markdown(image_bytes: bytes, original_filename: str, provider: str =
         "totalPages": total_pages,
         "processedPages": processed_pages,
     }
+    # Same magic-byte test _prepared_pages uses, so the snippet describes the
+    # path that actually ran rather than guessing from the extension.
+    result["code"] = _build_markdown_code(
+        original_filename, is_pdf=image_bytes[:4] == b"%PDF", provider=provider
+    )
+    result["timingMs"] = int((time.perf_counter() - start) * 1000)
+    return result
 
 
 def parse_field_names(raw: str) -> list[str]:
