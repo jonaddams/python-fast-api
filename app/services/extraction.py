@@ -562,6 +562,16 @@ def _build_tables_code(filename: str, *, is_pdf: bool) -> str:
     does — Vision runs per page image, and every document this feature demos is
     a PDF, so the obvious short form would error on all of them.
 
+    `VisionEngine.VLM_ENHANCED_ICR` is deliberate, not `VisionEngine.VLM`:
+    extract_tables passes the engine STRING "VLM", which _run_vision's
+    engine_map translates to VLM_ENHANCED_ICR, and VisionEngine.VLM does not
+    exist on this SDK build (only ADAPTIVE_OCR, ICR, VLM_ENHANCED_ICR). This
+    snippet emitted the nonexistent name until 2026-08-13, so anyone who copied
+    it hit an AttributeError on the line doing the actual work. Every other
+    guard in tests/test_extraction_code.py passed it, because `VisionEngine` is
+    a bound NAME and only the ATTRIBUTE was wrong; there is now a test that
+    walks each snippet's attribute access against the real enums.
+
     Pages go into a tempfile.TemporaryDirectory the snippet owns. Fixed names in
     the CWD look tidier and are silently wrong: run it on a 3-page PDF then a
     1-page PDF from the same directory, and run 2's glob still returns run 1's
@@ -591,7 +601,7 @@ def _build_tables_code(filename: str, *, is_pdf: bool) -> str:
     vision_block = (
         "            settings = page.get_settings()\n"
         "            vision = settings.get_vision_settings()\n"
-        "            vision.set_engine(VisionEngine.VLM)\n"
+        "            vision.set_engine(VisionEngine.VLM_ENHANCED_ICR)\n"
         "            # VisionFeatures.ALL rather than a TABLE-specific flag: the\n"
         "            # narrower features are a no-op (NAPY-20), so ask for\n"
         "            # everything and filter the elements afterwards.\n"
@@ -608,7 +618,7 @@ def _build_tables_code(filename: str, *, is_pdf: bool) -> str:
         non_pdf_vision_block = (
             "    settings = page.get_settings()\n"
             "    vision = settings.get_vision_settings()\n"
-            "    vision.set_engine(VisionEngine.VLM)\n"
+            "    vision.set_engine(VisionEngine.VLM_ENHANCED_ICR)\n"
             "    # VisionFeatures.ALL rather than a TABLE-specific flag: the\n"
             "    # narrower features are a no-op (NAPY-20), so ask for\n"
             "    # everything and filter the elements afterwards.\n"

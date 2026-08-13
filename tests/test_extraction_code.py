@@ -442,3 +442,75 @@ class TestBuildMarkdownCode:
     def test_filename_with_a_quote_does_not_break_the_literal(self):
         code = _build_markdown_code('we"ird.pdf', is_pdf=True, provider="claude")
         compile(code, "<markdown-snippet>", "exec")
+
+
+class TestSnippetsOnlyNameSdkMembersThatExist:
+    """Every `SomeEnum.MEMBER` a snippet emits must exist on the real enum.
+
+    This class is the one place in this file that touches the SDK, and only to
+    read `dir()` on three enums — no calls, no network. It exists because
+    `unbound_names()` above cannot catch this: in `VisionEngine.VLM` the NAME
+    `VisionEngine` *is* bound by the snippet's own import, so the snippet
+    compiles and passes every other guard here. The ATTRIBUTE is what does not
+    exist, and attribute access is only resolved at run time.
+
+    That gap shipped: `_build_tables_code` emitted `VisionEngine.VLM` for months
+    while `VisionEngine` exposed only ADAPTIVE_OCR, ICR and VLM_ENHANCED_ICR, so
+    a prospect who copied the Tables panel's snippet got an AttributeError on the
+    line that does the actual work.
+    """
+
+    def _snippets(self) -> dict[str, str]:
+        return {
+            "ocr-json": _build_ocr_code("x.pdf", JSON_ECHO, table_detection=True),
+            "ocr-markdown": _build_ocr_code("x.pdf", MARKDOWN_ECHO, table_detection=True),
+            "tables-pdf": _build_tables_code("x.pdf", is_pdf=True),
+            "tables-image": _build_tables_code("x.png", is_pdf=False),
+            "describe": _build_describe_code(
+                "x.pdf", is_pdf=True, prompt="", level="standard", provider="claude"
+            ),
+            "describe-image": _build_describe_code(
+                "x.png", is_pdf=False, prompt="read it", level="detailed", provider="openai"
+            ),
+            "handwriting-icr": _build_handwriting_code("x.pdf", engine="local", provider="claude"),
+            "handwriting-vlm": _build_handwriting_code("x.pdf", engine="vlm", provider="claude"),
+            "markdown-pdf": _build_markdown_code("x.pdf", is_pdf=True, provider="claude"),
+            "markdown-image": _build_markdown_code("x.png", is_pdf=False, provider="openai"),
+        }
+
+    def test_every_enum_member_named_by_a_snippet_exists_on_the_sdk(self):
+        from nutrient_sdk import VisionEngine, VisionFeatures, VisionOutputFormat
+
+        enums = {
+            "VisionEngine": VisionEngine,
+            "VisionFeatures": VisionFeatures,
+            "VisionOutputFormat": VisionOutputFormat,
+        }
+
+        bad: list[str] = []
+        for label, code in self._snippets().items():
+            for node in ast.walk(ast.parse(code)):
+                if not isinstance(node, ast.Attribute):
+                    continue
+                owner = node.value
+                if not isinstance(owner, ast.Name) or owner.id not in enums:
+                    continue
+                if not hasattr(enums[owner.id], node.attr):
+                    bad.append(f"{label}: {owner.id}.{node.attr}")
+
+        assert bad == [], (
+            "snippets name enum members that do not exist on this SDK build: "
+            + ", ".join(bad)
+        )
+
+    def test_the_guard_would_actually_catch_a_bad_member(self):
+        # Without this, the test above passes vacuously if the walk never
+        # matches anything — e.g. after a refactor that stops emitting bare
+        # `VisionEngine.X` attribute access.
+        from nutrient_sdk import VisionEngine
+
+        assert not hasattr(VisionEngine, "VLM")
+        assert hasattr(VisionEngine, "VLM_ENHANCED_ICR")
+        assert any(
+            "VisionEngine." in code for code in self._snippets().values()
+        ), "no snippet names VisionEngine any more; this guard has gone blind"
