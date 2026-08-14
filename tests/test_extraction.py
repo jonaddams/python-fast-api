@@ -1,5 +1,9 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 from tests.conftest import requires_anthropic, skip_if_unlicensed
+
+USENIX_PDF = Path(__file__).resolve().parent / "fixtures" / "usenix-paper.pdf"
 
 
 def test_ocr_endpoint_returns_text(client: TestClient, sample_image_bytes: bytes, sample_image_name: str):
@@ -227,6 +231,10 @@ def test_describe_endpoint_detailed_level(client: TestClient, sample_image_bytes
 
 
 def test_text_endpoint_returns_the_documented_key_set(client, invoice_pdf_bytes):
+    # Deliberately the text-free fixture, not usenix-paper.pdf: this pins that
+    # the no-text-layer branch returns the SAME 9-key shape as the has-text-layer
+    # branch, the same property test_ocr_endpoint_markdown_key_set_matches_json
+    # guards for the OCR/markdown split. Do not "fix" this to a text-bearing PDF.
     resp = client.post(
         "/api/extraction/text",
         files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
@@ -251,17 +259,21 @@ def test_text_endpoint_returns_the_documented_key_set(client, invoice_pdf_bytes)
     assert body["totalPages"] >= 1
 
 
-def test_text_endpoint_takes_no_options(client, invoice_pdf_bytes):
+def test_text_endpoint_takes_no_options(client):
     # export_as_text has no parameters. If a query param ever starts changing
     # the output, the endpoint has grown a control the SDK cannot honour.
+    # usenix-paper.pdf, not the text-free invoice fixture: comparing two empty
+    # strings would pass even if the endpoint always returned "", so this needs
+    # a document with real content for the equality to prove anything.
     plain = client.post(
         "/api/extraction/text",
-        files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+        files={"file": (USENIX_PDF.name, USENIX_PDF.read_bytes(), "application/pdf")},
     )
     skip_if_unlicensed(plain)
+    assert plain.json()["charCount"] > 0
     noisy = client.post(
         "/api/extraction/text?provider=claude&languages=deu",
-        files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+        files={"file": (USENIX_PDF.name, USENIX_PDF.read_bytes(), "application/pdf")},
     )
     assert plain.json()["text"] == noisy.json()["text"]
 
@@ -287,12 +299,10 @@ def test_a_document_with_no_text_layer_is_a_200_not_an_error(
     assert body["wordCount"] == 0
 
 
-def test_the_text_endpoint_reports_a_real_text_layer_as_present(
-    client, invoice_pdf_bytes
-):
+def test_the_text_endpoint_reports_a_real_text_layer_as_present(client):
     resp = client.post(
         "/api/extraction/text",
-        files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+        files={"file": (USENIX_PDF.name, USENIX_PDF.read_bytes(), "application/pdf")},
     )
     skip_if_unlicensed(resp)
     body = resp.json()
