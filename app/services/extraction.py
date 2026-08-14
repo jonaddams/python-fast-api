@@ -802,6 +802,44 @@ def _build_markdown_code(filename: str, *, is_pdf: bool, provider: str) -> str:
     )
 
 
+def _build_text_code(filename: str) -> str:
+    """The Text export snippet — genuinely one SDK call, unlike its siblings.
+
+    Every other builder in this module describes a pre-render loop, because
+    Vision needs rasterized pages (NAPY-7/NAPY-8). export_as_text() reads the
+    text layer the document already carries, so there is no loop, no engine
+    constant and no provider. Saying otherwise would misdescribe the run.
+
+    The TemporaryDirectory is load-bearing, not tidiness: export_as_text()
+    overwrites whatever path it is given, and the OCR snippet shipped a version
+    writing fixed names into the working directory, where stale files from a
+    previous run were silently read back as the current document's output.
+    """
+    return (
+        "# Text export — the plain text the document already carries.\n"
+        "#\n"
+        "# One SDK call: no model, no API key, no network. A scanned page has\n"
+        "# no text layer, so this writes an EMPTY file rather than raising —\n"
+        "# that is the signal to run OCR instead, not an error.\n"
+        "import os\n"
+        "import tempfile\n\n"
+        "from nutrient_sdk import Document, License\n\n"
+        'License.register_key(os.environ["NUTRIENT_LICENSE_KEY"])\n\n'
+        "# A directory this snippet owns: export_as_text() overwrites whatever\n"
+        "# path it is handed, so a fixed name would collide across runs.\n"
+        "with tempfile.TemporaryDirectory() as out_dir:\n"
+        '    out_path = os.path.join(out_dir, "text.txt")\n'
+        f"    with Document.open({filename!r}) as doc:\n"
+        "        page_count = doc.get_page_count()\n"
+        "        doc.export_as_text(out_path)\n"
+        "    # Read inside the block — the file is gone once it exits.\n"
+        '    with open(out_path, encoding="utf-8") as fh:\n'
+        "        text = fh.read()\n\n"
+        'print(f"{page_count} pages, {len(text)} characters")\n'
+        "print(text)\n"
+    )
+
+
 def extract_text_ocr(
     image_bytes: bytes,
     original_filename: str,
@@ -1085,6 +1123,65 @@ def extract_markdown(image_bytes: bytes, original_filename: str, provider: str =
     )
     result["timingMs"] = int((time.perf_counter() - start) * 1000)
     return result
+
+
+def extract_text_export(image_bytes: bytes, original_filename: str) -> dict:
+    """Plain text from the document's own text layer — export_as_text().
+
+    Deliberately NOT _prepared_pages. That helper rasterizes PDFs to per-page
+    JPEGs because Vision needs images; this call needs the opposite, the text
+    the document already carries. So: no provider, no network, no model, and no
+    MAX_PRERENDER_PAGES cap — the whole document, in milliseconds.
+
+    A document with no text layer — a scan, or any image input — exports an
+    EMPTY file and does NOT raise. That is a 200 with hasTextLayer false, not
+    an error, and the studio's empty state depends on it staying that way.
+
+    Output is a fixed-width spatial reconstruction: columns are preserved where
+    they sit on the page, so a two-column page reads out of order line by line.
+    Good for a diff or a grep, wrong for a model's context window. The rail copy
+    says so; do not "fix" it here.
+    """
+    import time
+
+    start = time.perf_counter()
+    # The suffix carries the original extension, which the SDK's format
+    # detection reads — .docx and .xlsx both work, and a bare temp name is the
+    # likeliest way to turn a working format into a 500. Same idiom as
+    # _prepared_pages.
+    with tempfile.NamedTemporaryFile(
+        suffix="-" + original_filename, delete=False
+    ) as inp:
+        inp.write(image_bytes)
+        inp_path = inp.name
+
+    try:
+        with tempfile.TemporaryDirectory() as out_dir:
+            out_path = os.path.join(out_dir, "text.txt")
+            with Document.open(inp_path) as doc:
+                total_pages = doc.get_page_count()
+                doc.export_as_text(out_path)
+            # Read inside the block: out_dir is removed when it exits.
+            with open(out_path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+    finally:
+        if os.path.exists(inp_path):
+            os.unlink(inp_path)
+
+    return {
+        "engine": "TEXT",
+        "filename": original_filename,
+        "text": text,
+        # Computed once, here. The frontend must not re-derive emptiness: two
+        # independent literals is how a pane once read "unavailable" while Copy
+        # handed over an empty string.
+        "charCount": len(text),
+        "wordCount": len(text.split()),
+        "totalPages": total_pages,
+        "hasTextLayer": bool(text.strip()),
+        "code": _build_text_code(original_filename),
+        "timingMs": int((time.perf_counter() - start) * 1000),
+    }
 
 
 def parse_field_names(raw: str) -> list[str]:

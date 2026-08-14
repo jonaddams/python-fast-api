@@ -15,6 +15,7 @@ from app.services.extraction import (
     _build_markdown_code,
     _build_ocr_code,
     _build_tables_code,
+    _build_text_code,
 )
 
 JSON_ECHO = {"languages": "eng", "outputFormat": "json"}
@@ -444,6 +445,66 @@ class TestBuildMarkdownCode:
         compile(code, "<markdown-snippet>", "exec")
 
 
+class TestBuildTextCode:
+    def test_snippet_is_valid_python_with_every_name_bound(self):
+        code = _build_text_code("invoice.pdf")
+        compile(code, "<snippet>", "exec")
+        assert unbound_names(code) == set()
+
+    def test_the_snippet_writes_into_a_temp_dir_it_owns(self):
+        # export_as_text() overwrites whatever path it is handed. A fixed name
+        # in the working directory is the OCR snippet's stale-file bug: run it
+        # on one document then another and the second read can return the
+        # first document's text, exit code 0.
+        code = _build_text_code("invoice.pdf")
+        tree = ast.parse(code)
+        temp_dir_blocks = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.With)
+            and "tempfile.TemporaryDirectory()" in ast.unparse(node.items[0].context_expr)
+        ]
+        assert len(temp_dir_blocks) == 1
+
+    def test_the_file_is_read_before_the_temp_dir_closes(self):
+        # The .txt vanishes when the TemporaryDirectory block exits, so the
+        # open() has to be inside it. Hoisting it out for tidiness leaves a
+        # snippet that raises on its own generated path.
+        code = _build_text_code("invoice.pdf")
+        tree = ast.parse(code)
+        temp_block = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.With)
+            and "tempfile.TemporaryDirectory()" in ast.unparse(node.items[0].context_expr)
+        )
+        body = ast.unparse(temp_block)
+        assert "open(" in body and ".read()" in body
+
+    def test_it_describes_no_prerender_because_none_happens(self):
+        # Every other snippet in this file rasterizes pages for Vision. This
+        # one must not imply it does: export_as_text reads the text layer, and
+        # a snippet that pre-renders would be describing a path that never ran.
+        code = _build_text_code("invoice.pdf")
+        assert "export_as_image" not in code
+        assert "Vision" not in code
+        assert "glob" not in code
+
+    def test_it_names_no_provider_and_no_api_key(self):
+        # No model runs here at all. A snippet mentioning a provider key would
+        # misstate the feature's whole selling point.
+        code = _build_text_code("invoice.pdf")
+        for token in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "provider"):
+            assert token not in code
+
+    def test_the_filename_interpolates_from_the_run(self):
+        assert "'statement.pdf'" in _build_text_code("statement.pdf")
+
+    def test_a_filename_containing_a_quote_still_compiles(self):
+        code = _build_text_code("o'brien's invoice.pdf")
+        compile(code, "<snippet>", "exec")
+
+
 class TestSnippetsOnlyNameSdkMembersThatExist:
     """Every `SomeEnum.MEMBER` a snippet emits must exist on the real enum.
 
@@ -476,6 +537,7 @@ class TestSnippetsOnlyNameSdkMembersThatExist:
             "handwriting-vlm": _build_handwriting_code("x.pdf", engine="vlm", provider="claude"),
             "markdown-pdf": _build_markdown_code("x.pdf", is_pdf=True, provider="claude"),
             "markdown-image": _build_markdown_code("x.png", is_pdf=False, provider="openai"),
+            "text": _build_text_code("x.pdf"),
         }
 
     def test_every_enum_member_named_by_a_snippet_exists_on_the_sdk(self):

@@ -9,6 +9,7 @@ from app.services.extraction import (
     describe_image,
     extract_tables,
     extract_markdown,
+    extract_text_export,
     extract_fields,
     parse_field_names,
     LocalVlmUnavailable,
@@ -123,6 +124,17 @@ async def markdown(
         return extract_markdown(data, file.filename or "input", provider=provider)
     except LocalVlmUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/text")
+async def text(file: UploadFile = File(...)):
+    # No Query, no Form: export_as_text() takes no options, so there is nothing
+    # to accept. No LocalVlmUnavailable branch either — no provider runs here.
+    try:
+        data = await file.read()
+        return extract_text_export(data, file.filename or "input")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
