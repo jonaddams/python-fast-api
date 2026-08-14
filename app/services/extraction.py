@@ -1125,6 +1125,65 @@ def extract_markdown(image_bytes: bytes, original_filename: str, provider: str =
     return result
 
 
+def extract_text_export(image_bytes: bytes, original_filename: str) -> dict:
+    """Plain text from the document's own text layer — export_as_text().
+
+    Deliberately NOT _prepared_pages. That helper rasterizes PDFs to per-page
+    JPEGs because Vision needs images; this call needs the opposite, the text
+    the document already carries. So: no provider, no network, no model, and no
+    MAX_PRERENDER_PAGES cap — the whole document, in milliseconds.
+
+    A document with no text layer — a scan, or any image input — exports an
+    EMPTY file and does NOT raise. That is a 200 with hasTextLayer false, not
+    an error, and the studio's empty state depends on it staying that way.
+
+    Output is a fixed-width spatial reconstruction: columns are preserved where
+    they sit on the page, so a two-column page reads out of order line by line.
+    Good for a diff or a grep, wrong for a model's context window. The rail copy
+    says so; do not "fix" it here.
+    """
+    import time
+
+    start = time.perf_counter()
+    # The suffix carries the original extension, which the SDK's format
+    # detection reads — .docx and .xlsx both work, and a bare temp name is the
+    # likeliest way to turn a working format into a 500. Same idiom as
+    # _prepared_pages.
+    with tempfile.NamedTemporaryFile(
+        suffix="-" + original_filename, delete=False
+    ) as inp:
+        inp.write(image_bytes)
+        inp_path = inp.name
+
+    try:
+        with tempfile.TemporaryDirectory() as out_dir:
+            out_path = os.path.join(out_dir, "text.txt")
+            with Document.open(inp_path) as doc:
+                total_pages = doc.get_page_count()
+                doc.export_as_text(out_path)
+            # Read inside the block: out_dir is removed when it exits.
+            with open(out_path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+    finally:
+        if os.path.exists(inp_path):
+            os.unlink(inp_path)
+
+    return {
+        "engine": "TEXT",
+        "filename": original_filename,
+        "text": text,
+        # Computed once, here. The frontend must not re-derive emptiness: two
+        # independent literals is how a pane once read "unavailable" while Copy
+        # handed over an empty string.
+        "charCount": len(text),
+        "wordCount": len(text.split()),
+        "totalPages": total_pages,
+        "hasTextLayer": bool(text.strip()),
+        "code": _build_text_code(original_filename),
+        "timingMs": int((time.perf_counter() - start) * 1000),
+    }
+
+
 def parse_field_names(raw: str) -> list[str]:
     """Accept a comma-separated list or a JSON array of field names."""
     raw = raw.strip()

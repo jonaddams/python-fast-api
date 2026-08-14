@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from tests.conftest import requires_anthropic
+from tests.conftest import requires_anthropic, skip_if_unlicensed
 
 
 def test_ocr_endpoint_returns_text(client: TestClient, sample_image_bytes: bytes, sample_image_name: str):
@@ -224,3 +224,77 @@ def test_describe_endpoint_detailed_level(client: TestClient, sample_image_bytes
     assert body["engine"] == "VLM_DESCRIBE"
     assert body["level"] == "detailed"
     assert isinstance(body["text"], str) and len(body["text"]) > 0
+
+
+def test_text_endpoint_returns_the_documented_key_set(client, invoice_pdf_bytes):
+    resp = client.post(
+        "/api/extraction/text",
+        files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+    )
+    skip_if_unlicensed(resp)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body.keys()) == {
+        "engine",
+        "filename",
+        "text",
+        "charCount",
+        "wordCount",
+        "totalPages",
+        "hasTextLayer",
+        "code",
+        "timingMs",
+    }
+    assert body["engine"] == "TEXT"
+    assert body["charCount"] == len(body["text"])
+    assert body["wordCount"] == len(body["text"].split())
+    assert body["totalPages"] >= 1
+
+
+def test_text_endpoint_takes_no_options(client, invoice_pdf_bytes):
+    # export_as_text has no parameters. If a query param ever starts changing
+    # the output, the endpoint has grown a control the SDK cannot honour.
+    plain = client.post(
+        "/api/extraction/text",
+        files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+    )
+    skip_if_unlicensed(plain)
+    noisy = client.post(
+        "/api/extraction/text?provider=claude&languages=deu",
+        files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+    )
+    assert plain.json()["text"] == noisy.json()["text"]
+
+
+def test_a_document_with_no_text_layer_is_a_200_not_an_error(
+    client, sample_image_bytes, sample_image_name
+):
+    # THE contract the studio's empty state rests on. An image has no text
+    # layer; the SDK exports an empty file and does not raise, so this must be
+    # a successful response reporting hasTextLayer false — never a 500. If this
+    # ever becomes an error the panel shows a red callout instead of the
+    # "switch to OCR" handoff, which is the feature's best demo beat.
+    resp = client.post(
+        "/api/extraction/text",
+        files={"file": (sample_image_name, sample_image_bytes, "image/png")},
+    )
+    skip_if_unlicensed(resp)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["hasTextLayer"] is False
+    assert body["text"] == ""
+    assert body["charCount"] == 0
+    assert body["wordCount"] == 0
+
+
+def test_the_text_endpoint_reports_a_real_text_layer_as_present(
+    client, invoice_pdf_bytes
+):
+    resp = client.post(
+        "/api/extraction/text",
+        files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+    )
+    skip_if_unlicensed(resp)
+    body = resp.json()
+    assert body["hasTextLayer"] is True
+    assert body["charCount"] > 0
