@@ -20,3 +20,5 @@ docs/sdk-feedback/
 # Internal development-process artifacts (design specs, implementation plans)
 docs/superpowers/
 .DS_Store
+.vercel
+.env*

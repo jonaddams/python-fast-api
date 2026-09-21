@@ -1,0 +1,15 @@
+# Belt and braces: .env is gitignored and excluded from the image by
+# .dockerignore, but this file holds the Nutrient licence and every provider
+# API key, so it is named explicitly on the upload path too.
+.env
+.env.*
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+*.log
+tests/
