@@ -158,6 +158,66 @@ class TestParseStructured:
         data = parse_structured(raw, "x.pdf")
         assert data.extraction == {"a": 1, "b": "two", "c": False}
 
+    def test_array_field_metadata_does_not_crash(self):
+        # `metadata` mirrors the SHAPE of `extraction`, so an array field's
+        # entry is a LIST, not a dict. Calling .get() on it raised
+        # AttributeError and took the whole endpoint down for any schema
+        # containing an array — which is most real invoice schemas.
+        raw = json.dumps(
+            {
+                "extraction": {
+                    "invoiceNumber": "AC-2025-1047",
+                    "lineItems": [
+                        {"description": "Design", "amount": 500.0},
+                        {"description": "Build", "amount": 750.0},
+                    ],
+                },
+                "metadata": {
+                    "invoiceNumber": {
+                        "page": 1,
+                        "bbox": {"x": 825, "y": 235, "width": 165, "height": 20},
+                    },
+                    "lineItems": [
+                        {"description": {"page": 1}, "amount": {"page": 1}},
+                        {"description": {"page": 1}, "amount": {"page": 1}},
+                    ],
+                },
+                "pages": [{"page": 1, "width": 1650, "height": 2350}],
+            }
+        )
+        data = parse_structured(raw, "invoice.pdf")
+        by_name = {f.name: f for f in data.fields}
+        assert set(by_name) == {"invoiceNumber", "lineItems"}
+        # The scalar still grounds.
+        assert by_name["invoiceNumber"].citation is not None
+        # The array has no bbox at this level, so it is reported ungrounded.
+        # Callers wanting per-item locations walk `raw` themselves.
+        assert by_name["lineItems"].citation is None
+        assert by_name["lineItems"].page is None
+        # The value itself survives intact.
+        assert len(by_name["lineItems"].value) == 2
+
+    def test_object_field_metadata_yields_no_top_level_citation(self):
+        # The same guard covers an object field, whose metadata entry is a dict
+        # keyed by member name — a dict, but not a grounding record. It must not
+        # be read as one.
+        raw = json.dumps(
+            {
+                "extraction": {"vendor": {"name": "Acme", "taxId": "123"}},
+                "metadata": {
+                    "vendor": {
+                        "name": {"page": 1},
+                        "taxId": {"page": 1},
+                    }
+                },
+                "pages": [{"page": 1, "width": 1650, "height": 2350}],
+            }
+        )
+        data = parse_structured(raw, "invoice.pdf")
+        assert data.fields[0].name == "vendor"
+        assert data.fields[0].citation is None
+        assert data.fields[0].page is None
+
 
 class TestSchemaValidation:
     def test_malformed_json_schema_is_422(self, client, invoice_pdf_bytes):
