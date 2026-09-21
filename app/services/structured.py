@@ -320,7 +320,15 @@ def parse_structured(raw_json: str, filename: str) -> StructuredData:
 
     fields: list[FieldResult] = []
     for name, value in extraction.items():
-        meta = metadata.get(name, {}) or {}
+        # `metadata` mirrors the SHAPE of `extraction`, so this entry is only a
+        # grounding record for a top-level SCALAR. For an object field it is a
+        # dict of per-key metadata, and for an array field it is a LIST — and
+        # `list.get(...)` raised AttributeError, taking the whole endpoint down
+        # for any schema containing an array. Guard instead: there is no bbox at
+        # this level either way, so the field is reported ungrounded and callers
+        # that want nested locations walk `raw` themselves.
+        raw_meta = metadata.get(name)
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
         page_1 = meta.get("page")
         page_0 = (page_1 - 1) if isinstance(page_1, int) else None
         citation = None
