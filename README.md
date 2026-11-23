@@ -106,6 +106,31 @@ document to the SDK — rasterizing first would discard the text layer and the p
 its bounding boxes are expressed in. It requires the `vision_vlm_data_extraction_api`
 entitlement; without it the SDK returns error 3017.
 
+## Deploy to Fly.io
+
+`fly.toml` holds the config: 4 GB shared VM (measured: the ML features OOM at 1 GB
+and, used together, at 2 GB), `/api/health` check, and scale-to-zero with
+`auto_stop_machines = "stop"` (idle costs rootfs storage only; boot is ~1 s).
+
+There are two deployments, built from the same image:
+
+| App | `EXTRACTION_SERVICE_TOKEN` | Called by |
+|---|---|---|
+| `nutrient-python-sdk-api` | unset (open) | browser samples, via `NEXT_PUBLIC_PYTHON_SDK_API_URL` |
+| a second app, e.g. `nutrient-python-sdk-api-private` | set | the email extraction pipeline (server-side) |
+
+```bash
+fly launch --no-deploy --copy-config                       # first time only; app names are global
+fly secrets set NUTRIENT_LICENSE_KEY=... ALLOWED_ORIGINS=https://your-frontend \
+  ANTHROPIC_API_KEY=... OPENAI_API_KEY=...                 # plus any other provider keys
+fly deploy
+
+# the private instance: same image, plus the token
+fly apps create nutrient-python-sdk-api-private
+fly secrets set --app nutrient-python-sdk-api-private EXTRACTION_SERVICE_TOKEN=... NUTRIENT_LICENSE_KEY=... # + provider keys
+fly deploy --app nutrient-python-sdk-api-private
+```
+
 ## Tests
 
 Integration tests live in `tests/`, hitting the real SDK via `fastapi.testclient.TestClient` (no mocks). Fixtures are in `tests/fixtures/`.

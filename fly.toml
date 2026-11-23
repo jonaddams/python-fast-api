@@ -1,0 +1,31 @@
+# Fly.io config. App names are global on Fly: if this one is taken, change it
+# here or pass --app. Secrets (NUTRIENT_LICENSE_KEY, ALLOWED_ORIGINS, provider
+# API keys, EXTRACTION_SERVICE_TOKEN) are set with `fly secrets set`.
+app = "nutrient-python-sdk-api"
+primary_region = "iad"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Scale to zero: a stopped machine costs rootfs storage only. "stop", not
+  # "suspend": Fly discourages suspend above 2 GB, and boot is ~1 s anyway
+  # because the SDK loads its ML models on the first request that needs them.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/api/health"
+
+# Measured under a cgroup cap (linux/amd64): forms/detect is OOM-killed at 1 GB,
+# and a mixed ICR -> forms -> tables sequence is OOM-killed at 2 GB because each
+# feature keeps its model resident (~2.8 GB after ICR alone). 4 GB ran the whole
+# sequence twice without a kill.
+[[vm]]
+  memory = "4gb"
+  cpu_kind = "shared"
+  cpus = 1
