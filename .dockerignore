@@ -15,3 +15,11 @@ venv/
 Dockerfile
 README.md
 tests/
+# Local-only folders in the working checkout. `fly deploy` uploads the build
+# context from wherever it runs, so keep notes and platform links out of the image.
+.vercel/
+.claude/
+.remember/
+.superpowers/
+.DS_Store
+HANDOFF.md

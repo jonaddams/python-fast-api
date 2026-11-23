@@ -23,4 +23,5 @@ COPY . .
 
 EXPOSE 8080
 
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+# exec: uvicorn becomes PID 1 and receives Fly's stop signal for a clean shutdown.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
