@@ -25,7 +25,9 @@ primary_region = "iad"
 # and a mixed ICR -> forms -> tables sequence is OOM-killed at 2 GB because each
 # feature keeps its model resident (~2.8 GB after ICR alone). 4 GB ran the whole
 # sequence twice without a kill.
+# A dedicated core, not shared: on Fly, shared-cpu-1x ran out of burst credit
+# and throttled document processing from seconds to minutes (measured on the
+# .NET backend). With scale to zero it is billed per second only while running.
 [[vm]]
+  size = "performance-1x"
   memory = "4gb"
-  cpu_kind = "shared"
-  cpus = 1

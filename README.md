@@ -108,7 +108,8 @@ entitlement; without it the SDK returns error 3017.
 
 ## Deploy to Fly.io
 
-`fly.toml` holds the config: 4 GB shared VM (measured: the ML features OOM at 1 GB
+`fly.toml` holds the config: performance-1x (a dedicated core: shared CPU throttles
+document processing to minutes), 4 GB (measured: the ML features OOM at 1 GB
 and, used together, at 2 GB), `/api/health` check, and scale-to-zero with
 `auto_stop_machines = "stop"` (idle costs rootfs storage only; boot is ~1 s).
 
