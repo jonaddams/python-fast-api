@@ -21,13 +21,14 @@ primary_region = "iad"
     method = "GET"
     path = "/api/health"
 
-# Measured under a cgroup cap (linux/amd64): forms/detect is OOM-killed at 1 GB,
-# and a mixed ICR -> forms -> tables sequence is OOM-killed at 2 GB because each
-# feature keeps its model resident (~2.8 GB after ICR alone). 4 GB ran the whole
-# sequence twice without a kill.
+# 8 GB, measured on Fly: each ML feature keeps its model resident, and the VM's
+# memory also holds the kernel. At 4 GB the kernel OOM-killed uvicorn (anon-rss
+# 3.86 GB) on forms/detect after ICR, tables and OCR. At 8 GB that sequence ran
+# twice with no OOM, ~5.1 GB in use with every model loaded. (A local
+# `docker --memory` cap understated this: it leaves the kernel outside.)
 # A dedicated core, not shared: on Fly, shared-cpu-1x ran out of burst credit
 # and throttled document processing from seconds to minutes (measured on the
 # .NET backend). With scale to zero it is billed per second only while running.
 [[vm]]
   size = "performance-1x"
-  memory = "4gb"
+  memory = "8gb"
